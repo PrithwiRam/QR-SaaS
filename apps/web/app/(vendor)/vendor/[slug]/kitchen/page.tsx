@@ -144,6 +144,14 @@ export default function KitchenPage() {
       setOrders(prev => prev.map(o => o.id === updated.id ? updated : o))
     })
 
+    // Real-time stock sync — update kitchen drawer immediately
+    socket.on('item_updated', (updatedItem: any) => {
+      setAllItems(prev => prev.map(x => x.id === updatedItem.id ? { ...x, ...updatedItem } : x))
+    })
+    socket.on('menu_changed', () => {
+      if (restaurantId) loadItems(restaurantId)
+    })
+
     return () => { socket.disconnect() }
   }, [restaurantId])
 
@@ -170,11 +178,14 @@ export default function KitchenPage() {
   async function toggleDishStock(item: any) {
     if (!restaurantId) return
     setUpdatingStockId(item.id)
+    const nextVal = !item.isAvailable
+    // Optimistic update
+    setAllItems(prev => prev.map(x => x.id === item.id ? { ...x, isAvailable: nextVal } : x))
     try {
-      const nextVal = !item.isAvailable
       await api.updateItem(restaurantId, item.id, { isAvailable: nextVal })
-      setAllItems(prev => prev.map(x => x.id === item.id ? { ...x, isAvailable: nextVal } : x))
     } catch (e: any) {
+      // Revert
+      setAllItems(prev => prev.map(x => x.id === item.id ? { ...x, isAvailable: item.isAvailable } : x))
       setError(e.message || 'Failed to update stock status')
       setTimeout(() => setError(''), 4000)
     } finally {

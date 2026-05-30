@@ -87,20 +87,28 @@ export default function MenuManagePage() {
         setSubmitting(false)
         return
       }
-      const data = {
-        ...itemForm,
-        price: priceVal,
-        description: itemForm.description.trim() || null,
-      }
+      const data = { ...itemForm, price: priceVal, description: itemForm.description.trim() || null }
       if (editItem) {
-        await api.updateItem(restaurantId, editItem.id, data)
+        const updated = await api.updateItem(restaurantId, editItem.id, data)
+        // Optimistic update
+        setCategories(prev => prev.map(cat => ({
+          ...cat,
+          items: cat.id === updated.categoryId
+            ? cat.items?.map((it: any) => it.id === updated.id ? { ...it, ...updated } : it)
+            : cat.items
+        })))
         showMsg('Item updated!')
       } else {
-        await api.createItem(restaurantId, data)
+        const created = await api.createItem(restaurantId, data)
+        // Optimistic insert
+        setCategories(prev => prev.map(cat =>
+          cat.id === created.categoryId
+            ? { ...cat, items: [...(cat.items || []), created] }
+            : cat
+        ))
         showMsg('Item added!')
       }
       closeItemModal()
-      await loadMenu(restaurantId)
     } catch (e: any) {
       setError(e.message || 'Failed to save item')
     } finally {
@@ -115,12 +123,23 @@ export default function MenuManagePage() {
     try {
       const res: any = await api.deleteItem(restaurantId, confirmDelete.id)
       if (res.softDeleted) {
+        // Mark as hidden in place
+        setCategories(prev => prev.map(cat => ({
+          ...cat,
+          items: cat.items?.map((it: any) =>
+            it.id === confirmDelete.id ? { ...it, isAvailable: false } : it
+          )
+        })))
         showMsg('Item has order history — hidden from customer menu instead of deleted')
       } else {
+        // Remove from list
+        setCategories(prev => prev.map(cat => ({
+          ...cat,
+          items: cat.items?.filter((it: any) => it.id !== confirmDelete.id)
+        })))
         showMsg('Item deleted')
       }
       setConfirmDelete(null)
-      await loadMenu(restaurantId)
     } catch (e: any) {
       setError(e.message || 'Failed to delete item')
     } finally {
@@ -131,11 +150,25 @@ export default function MenuManagePage() {
   async function toggleAvailability(item: any) {
     if (!restaurantId) return
     setError('')
+    const next = !item.isAvailable
+    // Optimistic update first
+    setCategories(prev => prev.map(cat => ({
+      ...cat,
+      items: cat.items?.map((it: any) =>
+        it.id === item.id ? { ...it, isAvailable: next } : it
+      )
+    })))
     try {
-      await api.updateItem(restaurantId, item.id, { isAvailable: !item.isAvailable })
-      showMsg(item.isAvailable ? 'Item hidden from menu' : 'Item enabled on menu')
-      await loadMenu(restaurantId)
+      await api.updateItem(restaurantId, item.id, { isAvailable: next })
+      showMsg(next ? 'Item enabled on menu' : 'Item hidden from menu')
     } catch (e: any) {
+      // Revert on error
+      setCategories(prev => prev.map(cat => ({
+        ...cat,
+        items: cat.items?.map((it: any) =>
+          it.id === item.id ? { ...it, isAvailable: item.isAvailable } : it
+        )
+      })))
       setError(e.message || 'Failed to update availability')
     }
   }

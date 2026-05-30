@@ -46,6 +46,7 @@ type PageState = 'menu' | 'cart' | 'placing' | 'success'
 export default function CustomerMenuClient({ restaurant, categories, tableId, tableNumber, qrToken, restaurantId }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [localCategories, setLocalCategories] = useState<Category[]>(categories)
+  const [restaurantInfo, setRestaurantInfo] = useState(restaurant)
   const [activeCategory, setActiveCategory] = useState(categories[0]?.id || '')
   const [customerNote, setCustomerNote] = useState('')
   const [page, setPage] = useState<PageState>('menu')
@@ -66,8 +67,8 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
   const [checkInError, setCheckInError] = useState('')
   const [checkingIn, setCheckingIn] = useState(false)
 
-  const brandColor = restaurant.themeColor || '#6c63ff'
-  const brandTheme = restaurant.menuTheme || 'classic'
+  const brandColor = restaurantInfo.themeColor || restaurant.themeColor || '#6c63ff'
+  const brandTheme = restaurantInfo.menuTheme || restaurant.menuTheme || 'classic'
 
   // Dynamic VIP tier helper
   function getVipTier(points: number, visits: number) {
@@ -270,7 +271,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
     `}</style>
   )
 
-  // ─── Socket.io Connection for Real-Time Stock Updates ──────────
+  // ─── Socket.io Real-Time Menu Sync ─────────────────────────────
   useEffect(() => {
     if (!restaurantId) return
 
@@ -278,37 +279,59 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
     const socket = connectSocket(apiUrl, {
       auth: { token: null },
       transports: ['websocket', 'polling'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     })
+
+    async function refetchMenu() {
+      try {
+        const data = await api.getPublicMenu(restaurant.slug)
+        if (data?.categories) setLocalCategories(data.categories)
+        if (data?.restaurant) {
+          setRestaurantInfo(data.restaurant)
+        }
+      } catch (err) { console.warn('Menu refetch failed', err) }
+    }
 
     socket.on('connect', () => {
       socket.emit('join-restaurant', { restaurantId })
     })
 
-    socket.on('item_updated', async (updatedItem: any) => {
-      try {
-        const data = await api.getPublicMenu(restaurant.slug)
-        if (data && Array.isArray(data.categories)) {
-          setLocalCategories(data.categories)
-        }
-      } catch (err) {
-        console.error('Failed to sync real-time menu update:', err)
-      }
+    // Full menu refresh signal (after any create/delete/update)
+    socket.on('menu_changed', refetchMenu)
+
+    // Optimistic item availability update (fast path for stock toggles)
+    socket.on('item_updated', (updatedItem: any) => {
+      setLocalCategories(prev => prev.map(cat => ({
+        ...cat,
+        items: cat.items
+          .map((it: any) => it.id === updatedItem.id ? { ...it, ...updatedItem } : it)
+          .filter((it: any) => it.isAvailable !== false || it.id !== updatedItem.id || updatedItem.isAvailable),
+      })).map(cat => ({
+        ...cat,
+        items: cat.items.filter((it: any) => !(it.id === updatedItem.id && !updatedItem.isAvailable)),
+      })))
 
       if (!updatedItem.isAvailable) {
-        setCart(prevCart => {
-          const inCart = prevCart.some(c => c.menuItemId === updatedItem.id)
+        setCart(prev => {
+          const inCart = prev.some(c => c.menuItemId === updatedItem.id)
           if (inCart) {
-            alert(`⚠️ "${updatedItem.name}" has just run out of stock and was removed from your cart.`)
-            return prevCart.filter(c => c.menuItemId !== updatedItem.id)
+            alert(`⚠️ "${updatedItem.name}" is now out of stock and was removed from your cart.`)
+            return prev.filter(c => c.menuItemId !== updatedItem.id)
           }
-          return prevCart
+          return prev
         })
       }
+      // Also do full refetch to ensure consistency
+      refetchMenu()
     })
 
-    return () => {
-      socket.disconnect()
-    }
+    // Real-time theme/customization updates
+    socket.on('restaurant_updated', (info: any) => {
+      setRestaurantInfo(prev => ({ ...prev, ...info }))
+    })
+
+    return () => { socket.disconnect() }
   }, [restaurantId, restaurant.slug])
 
   // ─── Load Customer and Offers ────────────────────────────────
@@ -322,22 +345,22 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
         console.error('Failed to load active offers:', err)
       }
 
-      // 2. Resolve customer
-      const stored = localStorage.getItem(`customer_${restaurantId}`)
+      // 2. Resolve customer (isolated strictly by restaurant slug)
+      const stored = localStorage.getItem(`customer_${restaurant.slug}`)
       if (stored) {
         try {
           const parsed = JSON.parse(stored)
           if (parsed && parsed.phone) {
             const data = await api.lookupCustomer(restaurant.slug, parsed.phone)
             setCustomer(data)
-            localStorage.setItem(`customer_${restaurantId}`, JSON.stringify(data))
+            localStorage.setItem(`customer_${restaurant.slug}`, JSON.stringify(data))
           }
         } catch (err) {
           console.warn('Failed to resolve stored customer, clearing profile:', err)
-          localStorage.removeItem(`customer_${restaurantId}`)
+          localStorage.removeItem(`customer_${restaurant.slug}`)
         }
       } else {
-        const skipped = sessionStorage.getItem(`skipped_crm_${restaurantId}`)
+        const skipped = sessionStorage.getItem(`skipped_crm_${restaurant.slug}`)
         if (!skipped) {
           setShowCheckInModal(true)
         }
@@ -345,7 +368,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
     }
 
     loadCustomerAndOffers()
-  }, [restaurant.slug, restaurantId])
+  }, [restaurant.slug])
 
   // ─── CRM Actions ─────────────────────────────────────────────
   async function handleCheckIn(e: React.FormEvent) {
@@ -359,7 +382,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
     try {
       const data = await api.checkInCustomer(restaurant.slug, checkInName.trim(), checkInPhone.trim())
       setCustomer(data)
-      localStorage.setItem(`customer_${restaurantId}`, JSON.stringify(data))
+      localStorage.setItem(`customer_${restaurant.slug}`, JSON.stringify(data))
       setShowCheckInModal(false)
       const offers = await api.getActiveOffers(restaurant.slug)
       setActiveOffers(offers || [])
@@ -382,7 +405,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
     try {
       const data = await api.lookupCustomer(restaurant.slug, lookupPhoneInput.trim())
       setCustomer(data)
-      localStorage.setItem(`customer_${restaurantId}`, JSON.stringify(data))
+      localStorage.setItem(`customer_${restaurant.slug}`, JSON.stringify(data))
       setShowCheckInModal(false)
       const offers = await api.getActiveOffers(restaurant.slug)
       setActiveOffers(offers || [])
@@ -395,13 +418,13 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
   }
 
   function handleSkip() {
-    sessionStorage.setItem(`skipped_crm_${restaurantId}`, 'true')
+    sessionStorage.setItem(`skipped_crm_${restaurant.slug}`, 'true')
     setShowCheckInModal(false)
   }
 
   function handleSignOut() {
     if (confirm('Are you sure you want to sign out of your rewards profile?')) {
-      localStorage.removeItem(`customer_${restaurantId}`)
+      localStorage.removeItem(`customer_${restaurant.slug}`)
       setCustomer(null)
       setSelectedOffer(null)
     }
@@ -458,7 +481,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
         try {
           const fresh = await api.lookupCustomer(restaurant.slug, customer.phone)
           setCustomer(fresh)
-          localStorage.setItem(`customer_${restaurantId}`, JSON.stringify(fresh))
+          localStorage.setItem(`customer_${restaurant.slug}`, JSON.stringify(fresh))
         } catch {}
       }
     } catch (e: any) {
@@ -586,6 +609,32 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
                 </div>
               ) : (
                 <div style={{ marginTop: '0.5rem' }}>
+                  {/* Subtle premium customer profile card */}
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '12px',
+                    padding: '0.75rem 1rem',
+                    marginBottom: '1rem',
+                    fontSize: '0.85rem'
+                  }}>
+                    <div>
+                      👤 Logged in as: <strong>{customer.name}</strong> ({customer.phone})
+                      <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', background: vipTier?.color || '#90A4AE', color: '#0F0F11', borderRadius: '12px', marginLeft: '0.5rem', fontWeight: 800 }}>
+                        {vipTier?.name || 'Member'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{ color: '#D4AF37', fontWeight: 800 }}>⭐ {customer.loyaltyPoints} pts</span>
+                      <span style={{ color: 'rgba(255,255,255,0.4)', cursor: 'pointer', textDecoration: 'underline' }} onClick={handleSignOut}>
+                        Sign Out
+                      </span>
+                    </div>
+                  </div>
+
                   {activeOffers.length === 0 ? (
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>No offers available currently.</p>
                   ) : (
@@ -679,58 +728,14 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
     <div style={{ maxWidth: '700px', margin: '0 auto', paddingBottom: cartCount > 0 ? '100px' : '2rem' }}>
       {customStyleBlock}
 
-      {/* Greeting banner (topmost bar) */}
-      {customer ? (
-        <div className="loyalty-banner-active">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <span style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)' }}>Welcome back,</span>
-              <h3 style={{ margin: 0, fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem' }}>
-                {customer.name}
-                <span style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem', background: vipTier?.color, color: '#0F0F11', borderRadius: '20px', fontWeight: 800 }}>
-                  {vipTier?.name}
-                </span>
-              </h3>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>Loyalty Points</div>
-              <strong style={{ fontSize: '1.25rem', color: '#D4AF37', fontFamily: 'Outfit, sans-serif' }}>
-                ⭐ {customer.loyaltyPoints}
-              </strong>
-            </div>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: '0.8rem' }}>
-            <span style={{ color: 'var(--accent-primary)', cursor: 'pointer', fontWeight: 700 }} onClick={() => setShowOffersModal(true)}>
-              🎁 View Available Offers
-            </span>
-            <span style={{ color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }} onClick={handleSignOut}>
-              Sign Out
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div className="loyalty-banner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ fontSize: '1.25rem' }}>🎁</span>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#FFF' }}>Unlock VIP Offers & Earn Rewards!</div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Get 50 Welcome points and 10% points cashback on every order.</div>
-            </div>
-          </div>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCheckInModal(true)} style={{ whiteSpace: 'nowrap' }}>
-            Join Now
-          </button>
-        </div>
-      )}
-
       {/* Restaurant Header */}
       <div style={{
         background: 'linear-gradient(135deg, var(--bg-secondary), var(--bg-card))',
         padding: '2rem 1.5rem',
         borderBottom: '1px solid var(--border-subtle)',
       }}>
-        <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>{restaurant.name}</h1>
-        {restaurant.address && <p style={{ fontSize: '0.875rem' }}>{restaurant.address}</p>}
+        <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>{restaurantInfo.name || restaurant.name}</h1>
+        {(restaurantInfo.address || restaurant.address) && <p style={{ fontSize: '0.875rem' }}>{restaurantInfo.address || restaurant.address}</p>}
         {tableNumber && (
           <span className="badge badge-active" style={{ marginTop: '0.75rem', display: 'inline-flex' }}>
             📋 Table {tableNumber}

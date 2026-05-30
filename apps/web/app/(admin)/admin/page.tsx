@@ -1,7 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
-import type { Restaurant } from '@qr-saas/types'
 
 export default function AdminPage() {
   const [restaurants, setRestaurants] = useState<any[]>([])
@@ -10,10 +9,11 @@ export default function AdminPage() {
   const [form, setForm] = useState({ name: '', slug: '', adminEmail: '', adminPassword: '', address: '', phone: '' })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [verifying, setVerifying] = useState(false)
 
-  useEffect(() => {
-    loadRestaurants()
-  }, [])
+  useEffect(() => { loadRestaurants() }, [])
 
   async function loadRestaurants() {
     try {
@@ -29,22 +29,30 @@ export default function AdminPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
+    setVerifying(true)
     setError('')
     try {
       await api.createRestaurant(form)
       setShowModal(false)
       setForm({ name: '', slug: '', adminEmail: '', adminPassword: '', address: '', phone: '' })
+      setSuccess(`✅ Restaurant "${form.name}" created successfully!`)
       await loadRestaurants()
+      setTimeout(() => setSuccess(''), 5000)
     } catch (e: any) {
       setError(e.message)
     } finally {
       setSubmitting(false)
+      setVerifying(false)
     }
   }
 
   async function handleToggle(r: any) {
-    await api.updateRestaurant(r.id, { isActive: !r.isActive })
-    await loadRestaurants()
+    try {
+      await api.updateRestaurant(r.id, { isActive: !r.isActive })
+      await loadRestaurants()
+    } catch (e: any) {
+      setError(e.message)
+    }
   }
 
   function autoSlug(name: string) {
@@ -61,7 +69,7 @@ export default function AdminPage() {
           <h1>Restaurant Dashboard</h1>
           <p>Manage all tenant restaurants from one place</p>
         </div>
-        <button id="create-restaurant-btn" className="btn btn-primary" onClick={() => setShowModal(true)}>
+        <button id="create-restaurant-btn" className="btn btn-gold" onClick={() => { setShowModal(true); setError('') }}>
           + New Restaurant
         </button>
       </div>
@@ -86,10 +94,9 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Error */}
-      {error && <div className="alert alert-error">{error}</div>}
+      {error && <div className="alert alert-error">⚠️ {error}</div>}
+      {success && <div className="alert alert-success">{success}</div>}
 
-      {/* Table */}
       {loading ? (
         <div className="loading-spinner" />
       ) : (
@@ -121,7 +128,7 @@ export default function AdminPage() {
                     {r.address && <div className="text-xs text-muted">{r.address}</div>}
                   </td>
                   <td>
-                    <code style={{ background: 'var(--bg-secondary)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.8rem' }}>
+                    <code style={{ background: 'var(--bg-secondary)', padding: '0.2rem 0.5rem', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--gold-primary)' }}>
                       {r.slug}
                     </code>
                   </td>
@@ -154,8 +161,11 @@ export default function AdminPage() {
       {showModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
           <div className="modal">
-            <div className="modal-title">Create New Restaurant</div>
-            {error && <div className="alert alert-error">{error}</div>}
+            <div className="modal-title">🏪 Create New Restaurant</div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '1.25rem', marginTop: '-0.5rem' }}>
+              The admin email will be verified to ensure it is a real, deliverable address.
+            </p>
+            {error && <div className="alert alert-error">⚠️ {error}</div>}
             <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div className="grid-2">
                 <div className="form-group">
@@ -163,7 +173,7 @@ export default function AdminPage() {
                   <input
                     value={form.name}
                     onChange={e => setForm(f => ({ ...f, name: e.target.value, slug: autoSlug(e.target.value) }))}
-                    placeholder="Pizza Palace"
+                    placeholder="Spice Garden"
                     required
                   />
                 </div>
@@ -172,7 +182,7 @@ export default function AdminPage() {
                   <input
                     value={form.slug}
                     onChange={e => setForm(f => ({ ...f, slug: e.target.value }))}
-                    placeholder="pizza-palace"
+                    placeholder="spice-garden"
                     required
                     pattern="[a-z0-9-]+"
                   />
@@ -185,34 +195,68 @@ export default function AdminPage() {
                     type="email"
                     value={form.adminEmail}
                     onChange={e => setForm(f => ({ ...f, adminEmail: e.target.value }))}
-                    placeholder="admin@pizzapalace.com"
+                    placeholder="owner@restaurant.com"
                     required
                   />
                 </div>
                 <div className="form-group">
                   <label>Admin Password</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={form.adminPassword}
+                      onChange={e => setForm(f => ({ ...f, adminPassword: e.target.value }))}
+                      placeholder="Min 6 characters"
+                      required
+                      minLength={6}
+                      style={{ paddingRight: '3rem' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(v => !v)}
+                      style={{
+                        position: 'absolute', right: '0.875rem', top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--text-secondary)', fontSize: '1.1rem', padding: 0,
+                        display: 'flex', alignItems: 'center',
+                      }}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? '🙈' : '👁️'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="grid-2">
+                <div className="form-group">
+                  <label>Address (optional)</label>
                   <input
-                    type="password"
-                    value={form.adminPassword}
-                    onChange={e => setForm(f => ({ ...f, adminPassword: e.target.value }))}
-                    placeholder="Min 6 characters"
-                    required
-                    minLength={6}
+                    value={form.address}
+                    onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                    placeholder="123 Main St, City"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Phone (optional)</label>
+                  <input
+                    value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="+91 98765 43210"
                   />
                 </div>
               </div>
-              <div className="form-group">
-                <label>Address (optional)</label>
-                <input
-                  value={form.address}
-                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  placeholder="123 Main St, City"
-                />
-              </div>
+
+              {verifying && submitting && (
+                <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <div style={{ width: '16px', height: '16px', border: '2px solid rgba(212,175,55,0.4)', borderTopColor: 'var(--gold-primary)', borderRadius: '50%', animation: 'spin 0.7s linear infinite', flexShrink: 0 }} />
+                  Verifying email domain…
+                </div>
+              )}
+
               <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={submitting}>
-                  {submitting ? 'Creating...' : 'Create Restaurant'}
+                <button type="button" className="btn btn-secondary" onClick={() => { setShowModal(false); setError('') }}>Cancel</button>
+                <button type="submit" className="btn btn-gold" disabled={submitting}>
+                  {submitting ? 'Creating…' : 'Create Restaurant'}
                 </button>
               </div>
             </form>

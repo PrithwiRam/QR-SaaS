@@ -15,13 +15,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [loading, isAuthenticated, user, router])
 
-  if (loading) return <div className="loading-spinner" />
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="loading-spinner" />
+    </div>
+  )
   if (!user || user.role !== 'SUPER_ADMIN') return null
 
   return (
     <>
       <nav className="navbar">
-        <span className="navbar-brand">🍽️ QR Saas Admin</span>
+        <span className="navbar-brand">⚙️ QR Saas Admin</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <span className="text-sm text-muted">{user.email}</span>
           <button className="btn btn-secondary btn-sm" onClick={logout}>Logout</button>

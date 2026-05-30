@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
+import dns from 'dns/promises'
 import { z } from 'zod'
+import { getIo } from '../socket/orderEvents'
 import { prisma } from '../lib/prisma'
 import { requireAuth, requireSuperAdmin } from '../middleware/auth'
 
@@ -11,6 +13,26 @@ const slugSchema = z
   .min(2)
   .max(60)
   .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase letters, numbers, and hyphens only')
+
+// ─── Helper: verify email domain via MX records ──────────────────
+async function verifyEmailDomain(email: string): Promise<{ valid: boolean; reason?: string }> {
+  const domain = email.split('@')[1]
+  if (!domain) return { valid: false, reason: 'Invalid email format' }
+
+  try {
+    const mxRecords = await dns.resolveMx(domain)
+    if (!mxRecords || mxRecords.length === 0) {
+      return { valid: false, reason: `Domain "${domain}" has no mail server configured. Please provide a real email address.` }
+    }
+    return { valid: true }
+  } catch (err: any) {
+    if (err.code === 'ENOTFOUND' || err.code === 'ENODATA') {
+      return { valid: false, reason: `Domain "${domain}" does not exist. Please provide a valid email address.` }
+    }
+    // DNS lookup failed for other reasons — fail open to avoid blocking valid emails
+    return { valid: true }
+  }
+}
 
 // ─── GET /restaurants — paginated list ──────────────────────────
 router.get('/', requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
@@ -50,10 +72,27 @@ router.post('/', requireAuth, requireSuperAdmin, async (req: Request, res: Respo
 
   const { name, slug, adminEmail, adminPassword, address, phone } = parsed.data
 
+  // ── Verify the email domain is real (MX record check) ──
+  const emailCheck = await verifyEmailDomain(adminEmail)
+  if (!emailCheck.valid) {
+    res.status(422).json({
+      error: 'Email verification failed',
+      details: emailCheck.reason || 'The provided email domain could not be verified. Please use a real email address.',
+    })
+    return
+  }
+
   // Check slug uniqueness
   const existing = await prisma.restaurant.findUnique({ where: { slug } })
   if (existing) {
     res.status(409).json({ error: 'Slug already taken' })
+    return
+  }
+
+  // Check email uniqueness
+  const existingUser = await prisma.user.findUnique({ where: { email: adminEmail } })
+  if (existingUser) {
+    res.status(409).json({ error: 'A user with this email already exists' })
     return
   }
 
@@ -103,7 +142,7 @@ router.patch('/:id', requireAuth, requireSuperAdmin, async (req: Request, res: R
   res.json(restaurant)
 })
 
-// ─── PATCH /restaurants/customize/settings — Customize tenant settings (Vendor or Admin) ───
+// ─── PATCH /restaurants/customize/settings ───────────────────────
 router.patch('/customize/settings', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = req.user!
   let { restaurantId } = req.body
@@ -138,6 +177,19 @@ router.patch('/customize/settings', requireAuth, async (req: Request, res: Respo
       where: { id: restaurantId },
       data: updateData,
     })
+
+    // Broadcast so customer menus update theme in real-time
+    try {
+      const io = getIo()
+      io.to(`restaurant:${restaurantId}`).emit('restaurant_updated', {
+        themeColor: restaurant.themeColor,
+        menuTheme: restaurant.menuTheme,
+        logoUrl: restaurant.logoUrl,
+        name: restaurant.name,
+      })
+    } catch (e) {
+      console.warn('[Socket.io] Failed to emit restaurant_updated:', e)
+    }
 
     res.json(restaurant)
   } catch (e: any) {
