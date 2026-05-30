@@ -1,0 +1,8 @@
+node_modules
+.turbo
+.next
+.env
+.env.local
+.env.production
+dist
+build
