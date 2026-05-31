@@ -38,9 +38,14 @@ router.get('/', requireAuth, requireTenant, async (req: Request, res: Response):
     })
 
     // Process spend and order count
-    const result = customers.map(c => {
-      const successfulOrders = c.orders.filter(o => o.status !== 'CANCELLED')
-      const totalSpend = successfulOrders.reduce((sum, o) => sum + Number(o.totalAmount), 0)
+    const result = customers.map((c: any) => {
+      const successfulOrders = c.orders.filter((o: any) => o.status !== 'CANCELLED')
+
+      const totalSpend = successfulOrders.reduce(
+        (sum: number, o: any) => sum + Number(o.totalAmount),
+        0
+      )
+
       return {
         id: c.id,
         name: c.name,
