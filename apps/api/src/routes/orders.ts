@@ -63,7 +63,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   // 4. Build order items with price snapshots
   const orderItems = items.map((i) => {
-    const mi = menuItems.find((m) => m.id === i.menuItemId)!
+    const mi = menuItems.find((m: any) => m.id === i.menuItemId)!
     const priceNum = Number(mi.price)
     const subtotal = priceNum * i.quantity
     return {
@@ -129,7 +129,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   }
 
   // 5. Create order atomically inside a transaction to update customer points
-  const order = await prisma.$transaction(async (tx) => {
+  const order = await prisma.$transaction(async (tx: any) => {
     if (customerId) {
       await tx.customer.update({
         where: { id: customerId },
