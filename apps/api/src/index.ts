@@ -92,8 +92,9 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 // ─── Startup ─────────────────────────────────────────────────────
 async function start() {
-  const PORT = parseInt(process.env.PORT || '4000')
+  console.log('PORT ENV =', process.env.PORT)
 
+  const PORT = parseInt(process.env.PORT || '4000')
   // Connect Redis (non-blocking — server starts even if Redis is down)
   const redisConnected = await connectRedis()
 
