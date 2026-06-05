@@ -100,7 +100,7 @@ async function start() {
   // Initialize Socket.io
   initSocket(httpServer, redisConnected)
 
-  httpServer.listen(PORT, () => {
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`\n🚀 API running at http://localhost:${PORT}`)
     console.log(`📡 Socket.io ready`)
     console.log(`🗄️  DB: connected | Redis: ${redisConnected ? 'connected' : 'unavailable (degraded mode)'}`)
