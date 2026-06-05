@@ -62,7 +62,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   }
 
   // 4. Build order items with price snapshots
-  const orderItems = items.map((i) => {
+  const orderItems = items.map((i: { menuItemId: string; quantity: number }) => {
     const mi = menuItems.find((m: any) => m.id === i.menuItemId)!
     const priceNum = Number(mi.price)
     const subtotal = priceNum * i.quantity
@@ -74,7 +74,10 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       subtotal,
     }
   })
-  const totalAmount = orderItems.reduce((s, i) => s + i.subtotal, 0)
+  const totalAmount = orderItems.reduce(
+    (s: number, i: { subtotal: number }) => s + i.subtotal,
+    0
+  )
 
   // Calculate discounts & loyalty points
   let discountAmount = 0

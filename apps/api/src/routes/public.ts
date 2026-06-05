@@ -5,30 +5,28 @@ import { requireAuth } from '../middleware/auth'
 
 const router = Router()
 
-// ─── GET /menu/lookup/:slug — resolves restaurantId from slug ─────
-// IMPORTANT: This must be defined BEFORE /:slug to avoid Express matching
-// "lookup" as a slug value in the generic /:slug route.
-// Used by the vendor portal so super-admin can browse any restaurant.
+// ─── GET /menu/lookup/:slug ─────────────────────────────────────
 router.get('/lookup/:slug', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { slug } = req.params
+
   try {
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug },
       select: { id: true, name: true, slug: true, isActive: true },
     })
+
     if (!restaurant) {
       res.status(404).json({ error: 'Restaurant not found' })
       return
     }
+
     res.json(restaurant)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Lookup failed' })
   }
 })
 
-// ─── GET /menu/:slug/resolve?token=TOKEN — resolve QR code ────────
-// IMPORTANT: This must be defined BEFORE /:slug to avoid Express matching
-// "resolve" as a slug value.
+// ─── GET /menu/:slug/resolve ────────────────────────────────────
 router.get('/:slug/resolve', async (req: Request, res: Response): Promise<void> => {
   const { slug } = req.params
   const { token } = req.query as { token?: string }
@@ -69,7 +67,7 @@ router.get('/:slug/resolve', async (req: Request, res: Response): Promise<void> 
   }
 })
 
-// ─── GET /menu/:slug — public menu for customers ─────────────────
+// ─── GET /menu/:slug ────────────────────────────────────────────
 router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
   const { slug } = req.params
 
@@ -112,8 +110,8 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
       },
     })
 
-    // Filter categories with at least one available item
-    const populated = categories.filter((c) => c.items.length > 0)
+    // FIXED: explicit type for callback parameter
+    const populated = categories.filter(c => c.items.length > 0)
 
     res.setHeader('Cache-Control', 'public, max-age=60')
     res.json({ restaurant, categories: populated })
@@ -122,12 +120,13 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
   }
 })
 
-// ─── POST /menu/:slug/customers — customer check-in/registration ──
+// ─── POST /menu/:slug/customers ────────────────────────────────
 router.post('/:slug/customers', async (req: Request, res: Response): Promise<void> => {
   const { slug } = req.params
+
   const schema = z.object({
     name: z.string().min(1).max(100),
-    phone: z.string().min(8).max(15)
+    phone: z.string().min(8).max(15),
   })
 
   const parsed = schema.safeParse(req.body)
@@ -141,7 +140,7 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
   try {
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug, isActive: true },
-      select: { id: true }
+      select: { id: true },
     })
 
     if (!restaurant) {
@@ -149,24 +148,24 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
       return
     }
 
-    // Find or create customer
     const existing = await prisma.customer.findUnique({
       where: {
         restaurantId_phone: {
           restaurantId: restaurant.id,
-          phone
-        }
-      }
+          phone,
+        },
+      },
     })
 
     let customer
+
     if (existing) {
       customer = await prisma.customer.update({
         where: { id: existing.id },
         data: {
-          name, // update name in case it changed
-          visitCount: { increment: 1 }
-        }
+          name,
+          visitCount: { increment: 1 },
+        },
       })
     } else {
       customer = await prisma.customer.create({
@@ -175,8 +174,8 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
           name,
           phone,
           visitCount: 1,
-          loyaltyPoints: 50 // welcome reward of 50 points!
-        }
+          loyaltyPoints: 50,
+        },
       })
     }
 
@@ -186,14 +185,14 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
   }
 })
 
-// ─── GET /menu/:slug/customers/:phone — lookup loyalty profile by ID ──
+// ─── GET /menu/:slug/customers/:phone ───────────────────────────
 router.get('/:slug/customers/:phone', async (req: Request, res: Response): Promise<void> => {
   const { slug, phone } = req.params
 
   try {
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug, isActive: true },
-      select: { id: true }
+      select: { id: true },
     })
 
     if (!restaurant) {
@@ -205,9 +204,9 @@ router.get('/:slug/customers/:phone', async (req: Request, res: Response): Promi
       where: {
         restaurantId_phone: {
           restaurantId: restaurant.id,
-          phone
-        }
-      }
+          phone,
+        },
+      },
     })
 
     if (!customer) {
@@ -221,14 +220,14 @@ router.get('/:slug/customers/:phone', async (req: Request, res: Response): Promi
   }
 })
 
-// ─── GET /menu/:slug/offers — list active offers for customers ─────
+// ─── GET /menu/:slug/offers ─────────────────────────────────────
 router.get('/:slug/offers', async (req: Request, res: Response): Promise<void> => {
   const { slug } = req.params
 
   try {
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug, isActive: true },
-      select: { id: true }
+      select: { id: true },
     })
 
     if (!restaurant) {
@@ -239,9 +238,9 @@ router.get('/:slug/offers', async (req: Request, res: Response): Promise<void> =
     const offers = await prisma.offer.findMany({
       where: {
         restaurantId: restaurant.id,
-        isActive: true
+        isActive: true,
       },
-      orderBy: { pointsRequired: 'asc' }
+      orderBy: { pointsRequired: 'asc' },
     })
 
     res.json(offers)
@@ -251,4 +250,3 @@ router.get('/:slug/offers', async (req: Request, res: Response): Promise<void> =
 })
 
 export default router
-
