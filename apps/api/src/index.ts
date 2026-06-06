@@ -23,7 +23,10 @@ const httpServer = http.createServer(app)
 
 // ─── Middleware ──────────────────────────────────────────────────
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',
+    'https://qr-saa-s-web.vercel.app'
+  ],
   credentials: true,
 }))
 app.use(express.json())
