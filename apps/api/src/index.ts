@@ -24,33 +24,42 @@ const httpServer = http.createServer(app)
 const v1 = '/v1'
 
 /* ─────────────────────────────────────────────
-   ✅ FIXED CORS CONFIG (PRODUCTION SAFE)
+   ✅ SAFE CORS CONFIG (PRODUCTION READY)
 ───────────────────────────────────────────── */
 
-const allowedOrigins = [
+const allowedOrigins = new Set([
   'https://qr-saa-s-web.vercel.app',
-  'http://localhost:3000',
-]
+  'https://qr-saa-s-gofvc6u5b-harinarayananeks-projects.vercel.app',
+  'http://localhost:3000'
+])
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // allow mobile apps / curl / postman
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    // allow server-to-server / postman
     if (!origin) return callback(null, true)
 
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true)
+    if (allowedOrigins.has(origin)) {
+      return callback(null, origin)
     }
 
-    // IMPORTANT: DO NOT throw error (prevents 500 preflight crash)
+    // IMPORTANT: do NOT throw error (prevents 500 preflight crash)
     return callback(null, false)
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-}))
+}
 
-// IMPORTANT: handle preflight properly
-app.options('*', cors())
+app.use(cors(corsOptions))
+
+// IMPORTANT: preflight must use SAME config
+app.options('*', cors(corsOptions))
+
+// Helps prevent caching-related CORS bugs
+app.use((_req, res, next) => {
+  res.header('Vary', 'Origin')
+  next()
+})
 
 /* ─────────────────────────────────────────────
    Middlewares (ORDER MATTERS)
@@ -60,7 +69,7 @@ app.use(express.json())
 app.use(cookieParser())
 app.use(morgan('dev'))
 
-// Serve static QR images
+// Static files
 app.use('/public', express.static(path.join(__dirname, '../public')))
 
 /* ─────────────────────────────────────────────
