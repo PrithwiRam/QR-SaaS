@@ -21,24 +21,41 @@ import customerRoutes from './routes/customers'
 const app = express()
 const httpServer = http.createServer(app)
 
-// ─── Middleware ──────────────────────────────────────────────────
+const v1 = '/v1'
+
+/* ─────────────────────────────────────────────
+   ✅ FIXED CORS CONFIG (PRODUCTION SAFE)
+───────────────────────────────────────────── */
+
 const allowedOrigins = [
-  'http://localhost:3000',
   'https://qr-saa-s-web.vercel.app',
-  // Support custom domain via Railway env var (optional override)
-  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+  'http://localhost:3000',
 ]
 
 app.use(cors({
-  origin: [
-    'https://qr-saa-s-web.vercel.app',
-    'http://localhost:3000'
-  ],
+  origin: function (origin, callback) {
+    // allow mobile apps / curl / postman
+    if (!origin) return callback(null, true)
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+
+    // IMPORTANT: DO NOT throw error (prevents 500 preflight crash)
+    return callback(null, false)
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
+
+// IMPORTANT: handle preflight properly
 app.options('*', cors())
+
+/* ─────────────────────────────────────────────
+   Middlewares (ORDER MATTERS)
+───────────────────────────────────────────── */
+
 app.use(express.json())
 app.use(cookieParser())
 app.use(morgan('dev'))
@@ -46,28 +63,22 @@ app.use(morgan('dev'))
 // Serve static QR images
 app.use('/public', express.static(path.join(__dirname, '../public')))
 
-// ─── Routes ─────────────────────────────────────────────────────
-const v1 = '/v1'
+/* ─────────────────────────────────────────────
+   Routes
+───────────────────────────────────────────── */
 
 app.use(`${v1}/auth`, authRoutes)
 app.use(`${v1}/restaurants`, restaurantRoutes)
-
-// Menu routes nested under restaurants
 app.use(`${v1}/restaurants/:restaurantId`, menuRoutes)
-
-// Table routes nested under restaurants
 app.use(`${v1}/restaurants/:restaurantId/tables`, tableRoutes)
-
-// Customer management nested under restaurants
 app.use(`${v1}/restaurants/:restaurantId/customers`, customerRoutes)
-
-// Orders — public POST + vendor GET/PATCH
 app.use(`${v1}/orders`, orderRoutes)
-
-// Public menu (no auth)
 app.use(`${v1}/menu`, publicRoutes)
 
-// ─── Health check ────────────────────────────────────────────────
+/* ─────────────────────────────────────────────
+   Health check
+───────────────────────────────────────────── */
+
 app.get('/health', async (_req, res) => {
   let dbStatus = 'ok'
   let redisStatus = 'ok'
@@ -92,38 +103,36 @@ app.get('/health', async (_req, res) => {
   })
 })
 
-// ─── 404 handler ────────────────────────────────────────────────
+/* ─────────────────────────────────────────────
+   404 handler
+───────────────────────────────────────────── */
+
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not found' })
 })
 
-// ─── Error handler ───────────────────────────────────────────────
+/* ─────────────────────────────────────────────
+   Error handler
+───────────────────────────────────────────── */
+
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('[Error]', err)
   res.status(500).json({ error: 'Internal server error' })
 })
 
-// ─── Startup ─────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────
+   Server start
+───────────────────────────────────────────── */
+
 async function start() {
-  console.log('PORT ENV =', process.env.PORT)
-
   const PORT = parseInt(process.env.PORT || '4000')
-  // Connect Redis (non-blocking — server starts even if Redis is down)
-  const redisConnected = await connectRedis()
 
-  // Initialize Socket.io
+  const redisConnected = await connectRedis()
   initSocket(httpServer, redisConnected)
 
   httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 API running at http://localhost:${PORT}`)
-    console.log(`📡 Socket.io ready`)
-    console.log(`🗄️  DB: connected | Redis: ${redisConnected ? 'connected' : 'unavailable (degraded mode)'}`)
-    console.log(`\n📖 Routes:`)
-    console.log(`   POST   /v1/auth/login`)
-    console.log(`   GET    /v1/restaurants`)
-    console.log(`   GET    /v1/menu/:slug`)
-    console.log(`   POST   /v1/orders`)
-    console.log(`   GET    /health\n`)
+    console.log(`🚀 API running at http://localhost:${PORT}`)
+    console.log(`📖 POST /v1/auth/login`)
   })
 }
 
