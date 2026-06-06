@@ -1,4 +1,11 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/v1'
+// Strip any accidental trailing slash so path construction is always correct.
+// NEXT_PUBLIC_API_URL must be set to: https://qr-saas-production.up.railway.app/v1
+const _rawBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/v1'
+const BASE = _rawBase.replace(/\/+$/, '') // remove trailing slash(es)
+
+if (process.env.NODE_ENV !== 'production' && !process.env.NEXT_PUBLIC_API_URL) {
+  console.warn('[api] ⚠️  NEXT_PUBLIC_API_URL is not set — falling back to localhost:4000')
+}
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null
