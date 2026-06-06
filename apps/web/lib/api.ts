@@ -1,11 +1,9 @@
-// Strip any accidental trailing slash so path construction is always correct.
-// NEXT_PUBLIC_API_URL must be set to: https://qr-saas-production.up.railway.app/v1
-const _rawBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/v1'
-const BASE = _rawBase.replace(/\/+$/, '') // remove trailing slash(es)
-
-if (process.env.NODE_ENV !== 'production' && !process.env.NEXT_PUBLIC_API_URL) {
-  console.warn('[api] ⚠️  NEXT_PUBLIC_API_URL is not set — falling back to localhost:4000')
-}
+// In local dev, NEXT_PUBLIC_API_URL is set via .env.local → http://localhost:4000/v1
+// In production (Vercel), set NEXT_PUBLIC_API_URL in Vercel dashboard, or it
+// falls back to the Railway URL below so login always works.
+const PRODUCTION_API_URL = 'https://qr-saas-production.up.railway.app/v1'
+const _rawBase = process.env.NEXT_PUBLIC_API_URL || PRODUCTION_API_URL
+const BASE = _rawBase.replace(/\/+$/, '') // strip any accidental trailing slash
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null

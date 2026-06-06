@@ -22,8 +22,22 @@ const app = express()
 const httpServer = http.createServer(app)
 
 // ─── Middleware ──────────────────────────────────────────────────
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://qr-saa-s-web.vercel.app',
+  // Support custom domain via Railway env var (optional override)
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+]
+
 app.use(cors({
-  origin: true,
+  origin: (origin, callback) => {
+    // Allow server-to-server requests (no origin) and listed origins
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error(`CORS: origin '${origin}' not allowed`))
+    }
+  },
   credentials: true,
 }))
 app.use(express.json())
