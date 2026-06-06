@@ -30,16 +30,15 @@ const allowedOrigins = [
 ]
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow server-to-server requests (no origin) and listed origins
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true)
-    } else {
-      callback(new Error(`CORS: origin '${origin}' not allowed`))
-    }
-  },
+  origin: [
+    'https://qr-saa-s-web.vercel.app',
+    'http://localhost:3000'
+  ],
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }))
+app.options('*', cors())
 app.use(express.json())
 app.use(cookieParser())
 app.use(morgan('dev'))
