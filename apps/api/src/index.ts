@@ -56,8 +56,21 @@ app.use(cors(corsOptions))
 app.options('*', cors(corsOptions))
 
 // Helps prevent caching-related CORS bugs
-app.use((_req, res, next) => {
-  res.header('Vary', 'Origin')
+app.use((req, res, next) => {
+  console.log("REQ:", req.method, req.path)
+  next()
+})
+
+app.use(cors({
+  origin: '*',
+  methods: '*',
+  allowedHeaders: '*',
+}))
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*")
+  res.header("Access-Control-Allow-Headers", "*")
+  res.header("Access-Control-Allow-Methods", "*")
   next()
 })
 
