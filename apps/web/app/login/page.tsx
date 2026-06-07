@@ -138,7 +138,7 @@ function LoginForm() {
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@restaurant.com"
                 required
-                autoComplete="off"
+                autoComplete="new-password"
                 autoCorrect="off"
                 autoCapitalize="none"
                 style={{ borderRadius: '10px' }}

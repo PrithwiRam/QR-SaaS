@@ -156,7 +156,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
         discountAmount,
         items: { create: orderItems },
       },
-      include: { items: true },
+      include: { items: true, customer: { select: { name: true, phone: true } } },
     })
   })
 
@@ -205,7 +205,7 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
     const orders = await prisma.order.findMany({
       where,
       orderBy: { placedAt: 'desc' },
-      include: { items: true },
+      include: { items: true, customer: { select: { name: true, phone: true } } },
       take: 100,
     })
     res.json(orders)
@@ -240,7 +240,7 @@ router.patch('/restaurant/:restaurantId/:id/status', requireAuth, requireTenant,
     const updated = await prisma.order.update({
       where: { id },
       data: parsed.data,
-      include: { items: true },
+      include: { items: true, customer: { select: { name: true, phone: true } } },
     })
 
     try {

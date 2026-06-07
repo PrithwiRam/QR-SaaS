@@ -184,10 +184,18 @@ export default function VendorDashboard() {
               <div className="kitchen-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
                 {activeOrdersList.slice(0, 6).map((order: any) => (
                   <div key={order.id} className={`order-card ${order.status.toLowerCase()}`}>
-                    <div className="flex items-center justify-between" style={{ marginBottom: '0.75rem' }}>
+                    <div className="flex items-center justify-between" style={{ marginBottom: '0.4rem' }}>
                       <div className="order-table-num" style={{ fontSize: '1.4rem' }}>Table {order.tableNumber}</div>
                       <span className={`badge badge-${order.status.toLowerCase()}`}>{order.status}</span>
                     </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                      Order #{order.id.slice(0, 5).toUpperCase()}
+                    </div>
+                    {order.customer && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', background: 'rgba(255,255,255,0.03)', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
+                        👤 {order.customer.name}
+                      </div>
+                    )}
                     <div style={{ maxHeight: '120px', overflowY: 'auto', marginBottom: '0.5rem' }}>
                       {order.items?.map((item: any) => (
                         <div key={item.id} className="order-item-row" style={{ padding: '0.35rem 0' }}>
@@ -260,7 +268,15 @@ export default function VendorDashboard() {
                     {servedOrdersList.slice(0, 5).map((order: any) => (
                       <tr key={order.id}>
                         <td style={{ fontWeight: 700, fontSize: '1rem' }}>
-                          Table {order.tableNumber}
+                          <div>Table {order.tableNumber}</div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Order #{order.id.slice(0, 5).toUpperCase()}
+                          </div>
+                          {order.customer && (
+                            <div style={{ fontSize: '0.75rem', fontWeight: 500, color: 'var(--accent-primary)', marginTop: '2px' }}>
+                              👤 {order.customer.name}
+                            </div>
+                          )}
                         </td>
                         <td style={{ color: 'var(--text-secondary)' }}>
                           {new Date(order.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}

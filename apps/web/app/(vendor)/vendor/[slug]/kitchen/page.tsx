@@ -22,6 +22,7 @@ interface Order {
   totalAmount: string
   placedAt: string
   items: OrderItem[]
+  customer?: { name: string; phone: string }
 }
 
 const STATUS_NEXT: Record<OrderStatus, OrderStatus | null> = {
@@ -361,15 +362,23 @@ export default function KitchenPage() {
               className={`order-card ${order.status.toLowerCase()} ${newOrderIds.has(order.id) ? 'new-pulse' : ''}`}
             >
               {/* Header */}
-              <div className="flex items-center justify-between" style={{ marginBottom: '0.75rem' }}>
+              <div className="flex items-center justify-between" style={{ marginBottom: '0.5rem' }}>
                 <div className="order-table-num">Table {order.tableNumber}</div>
                 <span className={`badge badge-${order.status.toLowerCase()}`}>{order.status}</span>
               </div>
 
-              {/* Time */}
-              <div className="text-xs text-muted" style={{ marginBottom: '0.75rem' }}>
-                {new Date(order.placedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {/* Order Info & Time */}
+              <div className="flex justify-between items-center text-xs text-muted" style={{ marginBottom: '0.65rem' }}>
+                <span>Order #{order.id.slice(0, 5).toUpperCase()}</span>
+                <span>{new Date(order.placedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               </div>
+
+              {/* Customer Info */}
+              {order.customer && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.65rem', paddingBottom: '0.4rem', borderBottom: '1px dashed var(--border-subtle)' }}>
+                  👤 {order.customer.name} ({order.customer.phone})
+                </div>
+              )}
 
               {/* Items */}
               <div style={{ marginBottom: '0.75rem' }}>
