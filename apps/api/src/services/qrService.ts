@@ -8,6 +8,12 @@ export let lastGeneratedQrUrl = 'none'
 // are always picked up even if the module is cached before env is ready.
 function getFrontendUrl(): string {
   const url = process.env.FRONTEND_URL || ''
+  if (!url || url.includes('localhost')) {
+    const isProd = process.env.NODE_ENV === 'production' || (process.env.PUBLIC_URL && process.env.PUBLIC_URL.includes('railway'))
+    if (isProd) {
+      return 'https://qr-saa-s-web.vercel.app'
+    }
+  }
   if (!url) {
     console.warn('[QR] FRONTEND_URL is not set — QR codes will use http://localhost:3000')
     return 'http://localhost:3000'
