@@ -118,31 +118,10 @@ router.post('/', requireAuth, requireSuperAdmin, async (req: Request, res: Respo
   res.status(201).json(restaurant)
 })
 
-// ─── PATCH /restaurants/:id ──────────────────────────────────────
-router.patch('/:id', requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
-  const schema = z.object({
-    name: z.string().min(2).max(100).optional(),
-    slug: slugSchema.optional(),
-    isActive: z.boolean().optional(),
-    address: z.string().optional(),
-    phone: z.string().optional(),
-  })
-
-  const parsed = schema.safeParse(req.body)
-  if (!parsed.success) {
-    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
-    return
-  }
-
-  const restaurant = await prisma.restaurant.update({
-    where: { id: req.params.id },
-    data: parsed.data,
-  })
-
-  res.json(restaurant)
-})
-
 // ─── PATCH /restaurants/customize/settings ───────────────────────
+// IMPORTANT: Must be registered BEFORE PATCH /:id so Express does not
+// match the literal string 'customize' as an :id param (which would
+// cause a Prisma crash → 500).
 router.patch('/customize/settings', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const user = req.user!
   let { restaurantId } = req.body
@@ -194,6 +173,40 @@ router.patch('/customize/settings', requireAuth, async (req: Request, res: Respo
     res.json(restaurant)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update customization settings' })
+  }
+})
+
+// ─── PATCH /restaurants/:id ──────────────────────────────────────
+router.patch('/:id', requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  const schema = z.object({
+    name: z.string().min(2).max(100).optional(),
+    slug: slugSchema.optional(),
+    isActive: z.boolean().optional(),
+    address: z.string().optional(),
+    phone: z.string().optional(),
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    return
+  }
+
+  const restaurant = await prisma.restaurant.update({
+    where: { id: req.params.id },
+    data: parsed.data,
+  })
+
+  res.json(restaurant)
+})
+
+// ─── DELETE /restaurants/:id ─────────────────────────────────────
+router.delete('/:id', requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  try {
+    await prisma.restaurant.delete({ where: { id: req.params.id } })
+    res.json({ message: 'Restaurant deleted successfully' })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to delete restaurant' })
   }
 })
 

@@ -27,13 +27,20 @@ const v1 = '/v1'
    CORS CONFIG
 ========================= */
 
-const allowedOrigins = [
-  'https://qr-saa-s-web.vercel.app',
-  'http://localhost:3000',
-]
+// Build allowed-origins list from hardcoded values + any env-driven overrides.
+// FRONTEND_URL on Railway may differ from the hardcoded Vercel URL, so we
+// always include it to prevent accidental CORS 500 errors after re-deployments.
+const allowedOrigins = Array.from(
+  new Set([
+    'https://qr-saa-s-web.vercel.app',
+    'http://localhost:3000',
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/+$/, '')] : []),
+  ])
+)
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
+    // Allow requests with no origin (server-to-server, curl, health checks)
     if (!origin) {
       return callback(null, true)
     }
@@ -42,7 +49,10 @@ const corsOptions: cors.CorsOptions = {
       return callback(null, true)
     }
 
-    return callback(new Error(`Origin not allowed: ${origin}`))
+    // Return false (not an Error) so Express does NOT route this to the 500
+    // error handler — the browser receives a proper CORS rejection instead.
+    console.warn(`[CORS] Rejected origin: ${origin}`)
+    return callback(null, false)
   },
 
   credentials: true,
