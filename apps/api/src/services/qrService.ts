@@ -1,18 +1,33 @@
 import QRCode from 'qrcode'
 import { v4 as uuidv4 } from 'uuid'
-import { uploadBuffer } from './storageService'
 import { prisma } from '../lib/prisma'
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
+// Read FRONTEND_URL at call-time (not module-load-time) so Railway env vars
+// are always picked up even if the module is cached before env is ready.
+function getFrontendUrl(): string {
+  const url = process.env.FRONTEND_URL || ''
+  if (!url) {
+    console.warn('[QR] FRONTEND_URL is not set — QR codes will use http://localhost:3000')
+    return 'http://localhost:3000'
+  }
+  return url.replace(/\/+$/, '') // strip trailing slash
+}
 
-async function generateQrBuffer(url: string): Promise<Buffer> {
-  return QRCode.toBuffer(url, {
-    type: 'png',
-    width: 800,
+/**
+ * Generate a QR code as a base64 PNG data URL.
+ * Storing data URLs in the DB means:
+ *  - No filesystem dependency (Railway's FS is ephemeral)
+ *  - No PUBLIC_URL configuration needed
+ *  - Works in production immediately, no extra hosting required
+ */
+async function generateQrDataUrl(url: string): Promise<string> {
+  return QRCode.toDataURL(url, {
+    type: 'image/png',
+    width: 600,
     margin: 2,
     color: { dark: '#1a1a2e', light: '#FFFFFF' },
     errorCorrectionLevel: 'H',
-  }) as unknown as Buffer
+  })
 }
 
 // ─── Regenerate QR for an existing table ─────────────────────────
@@ -23,17 +38,14 @@ export async function generateQrForTable(tableId: string) {
   })
 
   const newToken = uuidv4()
-  const qrUrl = `${FRONTEND_URL}/menu/${table.restaurant.slug}?table=${newToken}`
-  const buf = await generateQrBuffer(qrUrl)
-
-  const storageKey = `qr/${table.restaurantId}/table-${table.tableNumber}.png`
-  const imageUrl = await uploadBuffer(buf, storageKey, 'image/png')
+  const qrUrl = `${getFrontendUrl()}/menu/${table.restaurant.slug}?table=${newToken}`
+  const dataUrl = await generateQrDataUrl(qrUrl)
 
   return prisma.table.update({
     where: { id: tableId },
     data: {
       qrToken: newToken,
-      qrImageUrl: imageUrl,
+      qrImageUrl: dataUrl,
       tokenUpdatedAt: new Date(),
     },
   })
@@ -50,17 +62,15 @@ export async function generateQrForSingleTable(
   })
 
   const token = uuidv4()
-  const qrUrl = `${FRONTEND_URL}/menu/${restaurant.slug}?table=${token}`
-  const buf = await generateQrBuffer(qrUrl)
-  const storageKey = `qr/${restaurantId}/table-${tableNumber}.png`
-  const imageUrl = await uploadBuffer(buf, storageKey, 'image/png')
+  const qrUrl = `${getFrontendUrl()}/menu/${restaurant.slug}?table=${token}`
+  const dataUrl = await generateQrDataUrl(qrUrl)
 
   return prisma.table.create({
     data: {
       restaurantId,
       tableNumber,
       qrToken: token,
-      qrImageUrl: imageUrl,
+      qrImageUrl: dataUrl,
     },
   })
 }
@@ -76,22 +86,21 @@ export async function generateQrBulk(
     select: { slug: true },
   })
 
+  const frontendUrl = getFrontendUrl()
   const tables = []
+
   for (let i = 0; i < count; i++) {
     const tableNumber = startNumber + i
     const token = uuidv4()
-    const qrUrl = `${FRONTEND_URL}/menu/${restaurant.slug}?table=${token}`
-
-    const buf = await generateQrBuffer(qrUrl)
-    const storageKey = `qr/${restaurantId}/table-${tableNumber}.png`
-    const imageUrl = await uploadBuffer(buf, storageKey, 'image/png')
+    const qrUrl = `${frontendUrl}/menu/${restaurant.slug}?table=${token}`
+    const dataUrl = await generateQrDataUrl(qrUrl)
 
     const table = await prisma.table.create({
       data: {
         restaurantId,
         tableNumber,
         qrToken: token,
-        qrImageUrl: imageUrl,
+        qrImageUrl: dataUrl,
       },
     })
     tables.push(table)
