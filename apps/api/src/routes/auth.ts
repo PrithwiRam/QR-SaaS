@@ -31,12 +31,21 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     where: { email },
     include: { restaurant: { select: { slug: true } } },
   })
+
+  console.log('========== LOGIN DEBUG ==========')
+  console.log('EMAIL:', email)
+  console.log('USER FOUND:', !!user)
+  console.log('ROLE:', user?.role)
+  console.log('RESTAURANT ID:', user?.restaurantId)
   if (!user) {
     res.status(401).json({ error: 'Invalid credentials' })
     return
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash)
+
+  console.log('PASSWORD VALID:', valid)
+  console.log('================================')
   if (!valid) {
     res.status(401).json({ error: 'Invalid credentials' })
     return
