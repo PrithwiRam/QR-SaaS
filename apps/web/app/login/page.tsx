@@ -133,11 +133,14 @@ function LoginForm() {
               <input
                 id="email"
                 type="email"
+                name="qrsaas-login-email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@restaurant.com"
                 required
-                autoComplete="email"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
                 style={{ borderRadius: '10px' }}
               />
             </div>
@@ -150,11 +153,12 @@ function LoginForm() {
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
+                  name="qrsaas-login-password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  autoComplete="current-password"
+                  autoComplete="new-password"
                   style={{ borderRadius: '10px', paddingRight: '3rem' }}
                 />
                 <button

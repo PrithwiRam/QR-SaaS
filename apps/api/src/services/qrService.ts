@@ -39,6 +39,32 @@ export async function generateQrForTable(tableId: string) {
   })
 }
 
+// ─── Create a single table with an explicit table number ─────────
+export async function generateQrForSingleTable(
+  restaurantId: string,
+  tableNumber: number
+) {
+  const restaurant = await prisma.restaurant.findUniqueOrThrow({
+    where: { id: restaurantId },
+    select: { slug: true },
+  })
+
+  const token = uuidv4()
+  const qrUrl = `${FRONTEND_URL}/menu/${restaurant.slug}?table=${token}`
+  const buf = await generateQrBuffer(qrUrl)
+  const storageKey = `qr/${restaurantId}/table-${tableNumber}.png`
+  const imageUrl = await uploadBuffer(buf, storageKey, 'image/png')
+
+  return prisma.table.create({
+    data: {
+      restaurantId,
+      tableNumber,
+      qrToken: token,
+      qrImageUrl: imageUrl,
+    },
+  })
+}
+
 // ─── Bulk create tables + QR codes ───────────────────────────────
 export async function generateQrBulk(
   restaurantId: string,

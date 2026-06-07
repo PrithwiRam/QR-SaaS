@@ -1,8 +1,7 @@
 // In local dev, NEXT_PUBLIC_API_URL is set via .env.local → http://localhost:4000/v1
 // In production (Vercel), set NEXT_PUBLIC_API_URL in Vercel dashboard, or it
 // falls back to the Railway URL below so login always works.
-const BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '')
-const BASE = _rawBase.replace(/\/+$/, '') // strip any accidental trailing slash
+const BASE = (process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '') // strip any accidental trailing slash
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null
@@ -72,6 +71,8 @@ export const api = {
 
   // Tables
   getTables: (rid: string) => request<any>(`/restaurants/${rid}/tables`),
+  createSingleTable: (rid: string, tableNumber: number) =>
+    request<any>(`/restaurants/${rid}/tables/single`, { method: 'POST', body: JSON.stringify({ tableNumber }) }),
   createTables: (rid: string, count: number) => request<any>(`/restaurants/${rid}/tables`, { method: 'POST', body: JSON.stringify({ count }) }),
   regenerateQr: (rid: string, id: string) => request<any>(`/restaurants/${rid}/tables/${id}/regenerate`, { method: 'POST' }),
   deleteTable: (rid: string, id: string) => request<any>(`/restaurants/${rid}/tables/${id}`, { method: 'DELETE' }),

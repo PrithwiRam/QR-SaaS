@@ -14,10 +14,16 @@ export default function TablesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [bulkCount, setBulkCount] = useState(1)
   const [creating, setCreating] = useState(false)
   const [regenerating, setRegenerating] = useState<string | null>(null)
   const [confirmRegen, setConfirmRegen] = useState<any | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<any | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  // Form state
+  const [tableNumber, setTableNumber] = useState('')
+  const [addMode, setAddMode] = useState<'single' | 'bulk'>('single')
+  const [bulkCount, setBulkCount] = useState(1)
 
   useEffect(() => {
     if (restaurantId) {
@@ -45,17 +51,30 @@ export default function TablesPage() {
     }
   }
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleCreateSingle(e: React.FormEvent) {
     e.preventDefault()
-    if (!restaurantId) {
-      setError('Restaurant not resolved — please reload the page')
-      return
+    if (!restaurantId) { setError('Restaurant not resolved — please reload the page'); return }
+    const num = parseInt(tableNumber)
+    if (!num || num < 1 || num > 9999) { setError('Table number must be between 1 and 9999'); return }
+    setCreating(true)
+    setError('')
+    try {
+      await api.createSingleTable(restaurantId, num)
+      showMsg(`Table ${num} created with QR code`)
+      setTableNumber('')
+      await loadTables(restaurantId)
+    } catch (e: any) {
+      setError(e.message || 'Failed to create table')
+    } finally {
+      setCreating(false)
     }
+  }
+
+  async function handleCreateBulk(e: React.FormEvent) {
+    e.preventDefault()
+    if (!restaurantId) { setError('Restaurant not resolved — please reload the page'); return }
     const count = Number(bulkCount)
-    if (!count || count < 1 || count > 50) {
-      setError('Please enter a count between 1 and 50')
-      return
-    }
+    if (!count || count < 1 || count > 50) { setError('Please enter a count between 1 and 50'); return }
     setCreating(true)
     setError('')
     try {
@@ -85,24 +104,28 @@ export default function TablesPage() {
     }
   }
 
-  async function handleDeactivate(id: string, tableNumber: number) {
-    if (!restaurantId) return
-    if (!confirm(`Deactivate Table ${tableNumber}? The QR code will stop working for customers.`)) return
+  async function handleDelete() {
+    if (!confirmDelete || !restaurantId) return
+    setDeleting(confirmDelete.id)
     setError('')
     try {
-      await api.deleteTable(restaurantId, id)
-      showMsg(`Table ${tableNumber} deactivated`)
+      await api.deleteTable(restaurantId, confirmDelete.id)
+      showMsg(`Table ${confirmDelete.tableNumber} deleted. You can now reuse this number.`)
+      setConfirmDelete(null)
       await loadTables(restaurantId)
     } catch (e: any) {
-      setError(e.message || 'Failed to deactivate table')
+      setError(e.message || 'Failed to delete table')
+    } finally {
+      setDeleting(null)
     }
   }
 
-  const activeTables = tables.filter(t => t.isActive)
+  // Figure out which numbers are already taken, to show hints
+  const usedNumbers = new Set(tables.map(t => t.tableNumber))
 
   if (loading) return (
     <div>
-      <div className="page-header"><h1>Tables & QR Codes</h1></div>
+      <div className="page-header"><h1>Tables &amp; QR Codes</h1></div>
       <div className="loading-spinner" />
     </div>
   )
@@ -112,34 +135,9 @@ export default function TablesPage() {
       {/* Header */}
       <div className="page-header">
         <div>
-          <h1>Tables & QR Codes</h1>
-          <p>
-            {activeTables.length} active table{activeTables.length !== 1 ? 's' : ''}
-            {tables.length > activeTables.length && ` · ${tables.length - activeTables.length} inactive`}
-          </p>
+          <h1>Tables &amp; QR Codes</h1>
+          <p>{tables.length} table{tables.length !== 1 ? 's' : ''} total</p>
         </div>
-        <form onSubmit={handleCreate} className="flex items-center gap-2">
-          <input
-            type="number"
-            min={1}
-            max={50}
-            value={bulkCount}
-            onChange={e => setBulkCount(Math.max(1, parseInt(e.target.value) || 1))}
-            style={{ width: '80px' }}
-            title="Number of tables to create"
-          />
-          <button
-            id="add-tables-btn"
-            type="submit"
-            className="btn btn-primary"
-            disabled={creating || !restaurantId}
-          >
-            {creating
-              ? '⏳ Generating QR codes...'
-              : `+ Add ${bulkCount} Table${bulkCount > 1 ? 's' : ''}`
-            }
-          </button>
-        </form>
       </div>
 
       {/* Alerts */}
@@ -154,13 +152,103 @@ export default function TablesPage() {
         </div>
       )}
 
+      {/* Add Table Panel */}
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ marginBottom: '1rem' }}>
+          <h2 style={{ fontSize: '1.1rem', marginBottom: '0.25rem' }}>➕ Add Table</h2>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Choose a specific number or add multiple tables in bulk.
+          </p>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="flex gap-2" style={{ marginBottom: '1.25rem' }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${addMode === 'single' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setAddMode('single')}
+          >
+            Single Table
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${addMode === 'bulk' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setAddMode('bulk')}
+          >
+            Bulk Add
+          </button>
+        </div>
+
+        {addMode === 'single' ? (
+          <form onSubmit={handleCreateSingle} className="flex items-center gap-3" style={{ flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Table Number
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={9999}
+                value={tableNumber}
+                onChange={e => setTableNumber(e.target.value)}
+                placeholder="e.g. 1, 4, 12"
+                style={{ width: '140px' }}
+                required
+              />
+              {tableNumber && usedNumbers.has(parseInt(tableNumber)) && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--accent-red)' }}>
+                  ⚠️ Table {tableNumber} already exists
+                </span>
+              )}
+            </div>
+            <button
+              id="add-single-table-btn"
+              type="submit"
+              className="btn btn-primary"
+              disabled={creating || !restaurantId || (!!tableNumber && usedNumbers.has(parseInt(tableNumber)))}
+              style={{ marginTop: '1.25rem' }}
+            >
+              {creating ? '⏳ Generating QR...' : `+ Create Table ${tableNumber || '#'}`}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleCreateBulk} className="flex items-center gap-3" style={{ flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                How many tables?
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={bulkCount}
+                onChange={e => setBulkCount(Math.max(1, parseInt(e.target.value) || 1))}
+                style={{ width: '100px' }}
+              />
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Numbers will start from {(tables.reduce((max, t) => Math.max(max, t.tableNumber), 0)) + 1}
+              </span>
+            </div>
+            <button
+              id="add-tables-btn"
+              type="submit"
+              className="btn btn-primary"
+              disabled={creating || !restaurantId}
+              style={{ marginTop: '1.25rem' }}
+            >
+              {creating ? '⏳ Generating QR codes...' : `+ Add ${bulkCount} Table${bulkCount > 1 ? 's' : ''}`}
+            </button>
+          </form>
+        )}
+      </div>
+
       {/* Tables list */}
       {tables.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">📋</div>
           <div className="empty-state-title">No tables yet</div>
           <div className="empty-state-desc">
-            Enter a number above and click &quot;+ Add Tables&quot; to generate QR codes for your tables.
+            Enter a table number above and click &quot;+ Create Table&quot; to generate a QR code.
           </div>
         </div>
       ) : (
@@ -170,20 +258,19 @@ export default function TablesPage() {
               <tr>
                 <th>Table #</th>
                 <th>QR Code</th>
-                <th>Status</th>
                 <th>Last Updated</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {tables.map(table => (
-                <tr key={table.id} style={{ opacity: table.isActive ? 1 : 0.45 }}>
+                <tr key={table.id}>
                   <td>
                     <span style={{
                       fontSize: '1.75rem',
                       fontWeight: 900,
                       fontFamily: 'Outfit, sans-serif',
-                      color: table.isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      color: 'var(--text-primary)',
                     }}>
                       {table.tableNumber}
                     </span>
@@ -214,11 +301,6 @@ export default function TablesPage() {
                     )}
                   </td>
                   <td>
-                    <span className={`badge badge-${table.isActive ? 'active' : 'inactive'}`}>
-                      {table.isActive ? '● Active' : '○ Inactive'}
-                    </span>
-                  </td>
-                  <td>
                     <span className="text-sm text-muted">
                       {new Date(table.tokenUpdatedAt).toLocaleDateString('en-IN', {
                         day: 'numeric', month: 'short', year: 'numeric',
@@ -236,23 +318,20 @@ export default function TablesPage() {
                       >
                         🔗 Test
                       </a>
-                      {table.isActive && (
-                        <>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            onClick={() => setConfirmRegen(table)}
-                            disabled={regenerating === table.id}
-                          >
-                            {regenerating === table.id ? '⏳' : '↺ Regen QR'}
-                          </button>
-                          <button
-                            className="btn btn-danger btn-sm"
-                            onClick={() => handleDeactivate(table.id, table.tableNumber)}
-                          >
-                            Deactivate
-                          </button>
-                        </>
-                      )}
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setConfirmRegen(table)}
+                        disabled={regenerating === table.id}
+                      >
+                        {regenerating === table.id ? '⏳' : '↺ Regen QR'}
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => setConfirmDelete(table)}
+                        disabled={deleting === table.id}
+                      >
+                        {deleting === table.id ? '⏳' : '🗑 Delete'}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -278,6 +357,29 @@ export default function TablesPage() {
               <button className="btn btn-secondary" onClick={() => setConfirmRegen(null)}>Cancel</button>
               <button className="btn btn-danger" onClick={handleRegenerate} disabled={!!regenerating}>
                 {regenerating ? '⏳ Regenerating...' : 'Yes, Regenerate QR'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setConfirmDelete(null)}>
+          <div className="modal">
+            <div className="modal-title">🗑 Delete Table {confirmDelete.tableNumber}?</div>
+            <div className="alert alert-error" style={{ marginBottom: '1rem' }}>
+              This will <strong>permanently delete Table {confirmDelete.tableNumber}</strong> and its QR code.
+              The table number will become available to reuse.
+            </div>
+            <p style={{ marginBottom: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              Note: Deletion will be blocked if this table has active (Pending/Preparing) orders.
+              Historical served orders will not be affected.
+            </p>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button className="btn btn-danger" onClick={handleDelete} disabled={!!deleting}>
+                {deleting ? '⏳ Deleting...' : 'Yes, Delete Table'}
               </button>
             </div>
           </div>

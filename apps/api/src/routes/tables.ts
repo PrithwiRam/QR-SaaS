@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { requireAuth, requireTenant } from '../middleware/auth'
-import { generateQrForTable, generateQrBulk } from '../services/qrService'
+import { generateQrForTable, generateQrForSingleTable, generateQrBulk } from '../services/qrService'
 
 const router = Router({ mergeParams: true })
 
@@ -17,6 +17,39 @@ router.get('/', requireAuth, requireTenant, async (req: Request, res: Response):
     res.json(tables)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load tables' })
+  }
+})
+
+// ─── POST /restaurants/:restaurantId/tables/single — single table with explicit number ──
+router.post('/single', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId } = req.params
+  const schema = z.object({
+    tableNumber: z.coerce.number().int().min(1).max(9999),
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input — tableNumber must be an integer between 1 and 9999', details: parsed.error.flatten() })
+    return
+  }
+
+  const { tableNumber } = parsed.data
+
+  // Check if this table number already exists for this restaurant
+  const existing = await prisma.table.findFirst({
+    where: { restaurantId, tableNumber },
+  })
+  if (existing) {
+    res.status(409).json({ error: `Table ${tableNumber} already exists for this restaurant` })
+    return
+  }
+
+  try {
+    const table = await generateQrForSingleTable(restaurantId, tableNumber)
+    res.status(201).json(table)
+  } catch (e: any) {
+    console.error('[Tables] Create single error:', e)
+    res.status(500).json({ error: e.message || 'Failed to create table' })
   }
 })
 
@@ -66,7 +99,8 @@ router.post('/:id/regenerate', requireAuth, requireTenant, async (req: Request, 
   }
 })
 
-// ─── DELETE /restaurants/:restaurantId/tables/:id — soft delete ──
+// ─── DELETE /restaurants/:restaurantId/tables/:id — hard delete ──
+// Safety: Blocks deletion if the table has active (PENDING or PREPARING) orders.
 router.delete('/:id', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
   const { restaurantId, id } = req.params
   try {
@@ -75,10 +109,26 @@ router.delete('/:id', requireAuth, requireTenant, async (req: Request, res: Resp
       res.status(404).json({ error: 'Table not found' })
       return
     }
-    await prisma.table.update({ where: { id }, data: { isActive: false } })
-    res.json({ message: 'Table deactivated' })
+
+    // Block deletion if table has active orders
+    const activeOrders = await prisma.order.count({
+      where: {
+        tableId: id,
+        status: { in: ['PENDING', 'PREPARING'] },
+      },
+    })
+    if (activeOrders > 0) {
+      res.status(409).json({
+        error: `Cannot delete Table ${table.tableNumber} — it has ${activeOrders} active order(s). Mark them as Served or Cancelled first.`,
+      })
+      return
+    }
+
+    await prisma.table.delete({ where: { id } })
+    res.json({ message: `Table ${table.tableNumber} deleted successfully` })
   } catch (e: any) {
-    res.status(500).json({ error: e.message || 'Failed to deactivate table' })
+    console.error('[Tables] Delete error:', e)
+    res.status(500).json({ error: e.message || 'Failed to delete table' })
   }
 })
 

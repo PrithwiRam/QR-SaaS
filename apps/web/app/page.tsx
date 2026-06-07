@@ -46,9 +46,6 @@ export default function HomePage() {
           <Link href="/login?role=vendor" className="btn btn-gold btn-lg">
             Merchant Sign In
           </Link>
-          <Link href="/login?role=admin" className="btn btn-secondary btn-lg">
-            Admin Portal
-          </Link>
         </div>
       </div>
     </main>

@@ -132,6 +132,18 @@ app.use((
 async function start() {
   const PORT = parseInt(process.env.PORT || '4000')
 
+  // ─── Startup validation ───────────────────────────────────────
+  const frontendUrl = process.env.FRONTEND_URL || ''
+  if (process.env.NODE_ENV === 'production' && frontendUrl.includes('localhost')) {
+    console.warn('⚠️  [CONFIG WARNING] FRONTEND_URL is set to a localhost address in production!')
+    console.warn('⚠️  QR codes will encode localhost URLs which will not work for customers.')
+    console.warn('⚠️  Set FRONTEND_URL=https://qr-saa-s-web.vercel.app in your Railway environment variables.')
+  }
+  if (!frontendUrl) {
+    console.warn('⚠️  [CONFIG WARNING] FRONTEND_URL is not set. QR codes will fallback to http://localhost:3000.')
+    console.warn('⚠️  Set FRONTEND_URL in your environment variables.')
+  }
+
   const redisConnected = await connectRedis()
 
   initSocket(httpServer, redisConnected)
