@@ -39,6 +39,7 @@ export async function generateQrForTable(tableId: string) {
 
   const newToken = uuidv4()
   const qrUrl = `${getFrontendUrl()}/menu/${table.restaurant.slug}?table=${newToken}`
+  console.log("QR URL GENERATED:", qrUrl)
   const dataUrl = await generateQrDataUrl(qrUrl)
 
   return prisma.table.update({
@@ -63,6 +64,7 @@ export async function generateQrForSingleTable(
 
   const token = uuidv4()
   const qrUrl = `${getFrontendUrl()}/menu/${restaurant.slug}?table=${token}`
+  console.log("QR URL GENERATED:", qrUrl)
   const dataUrl = await generateQrDataUrl(qrUrl)
 
   return prisma.table.create({
@@ -93,6 +95,7 @@ export async function generateQrBulk(
     const tableNumber = startNumber + i
     const token = uuidv4()
     const qrUrl = `${frontendUrl}/menu/${restaurant.slug}?table=${token}`
+    console.log("QR URL GENERATED:", qrUrl)
     const dataUrl = await generateQrDataUrl(qrUrl)
 
     const table = await prisma.table.create({
