@@ -27,30 +27,45 @@ const v1 = '/v1'
    CORS CONFIG
 ========================= */
 
-// Build allowed-origins list from hardcoded values + any env-driven overrides.
-// FRONTEND_URL on Railway may differ from the hardcoded Vercel URL, so we
-// always include it to prevent accidental CORS 500 errors after re-deployments.
-const allowedOrigins = Array.from(
-  new Set([
-    'https://qr-saa-s-web.vercel.app',
-    'http://localhost:3000',
-    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/+$/, '')] : []),
-  ])
-)
+// ─── Allowed-origin validator ─────────────────────────────────────────────
+//
+// Vercel assigns a unique hash-based subdomain to every deployment, e.g.:
+//   qr-saa-s-gktmbpnyv-harinarayananeks-projects.vercel.app
+//   qr-saa-s-web.vercel.app  ← production alias
+//
+// A static string list breaks on every new deployment.  Instead we use a
+// pattern-match so that ALL preview + production URLs for this project are
+// accepted, while unrelated Vercel apps are still rejected.
+//
+// Allowed sources:
+//   1. Any *.vercel.app subdomain whose slug starts with "qr-saa-s"
+//   2. The exact FRONTEND_URL set in the Railway environment (optional extra)
+//   3. http://localhost:3000 (local development)
+
+function isAllowedOrigin(origin: string): boolean {
+  // Local dev
+  if (origin === 'http://localhost:3000') return true
+
+  // Env-driven override (Railway FRONTEND_URL) – strip trailing slash
+  const envUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '')
+  if (envUrl && origin === envUrl) return true
+
+  // Any Vercel preview or production URL belonging to this project.
+  // Pattern: https://qr-saa-s<anything>.vercel.app
+  if (/^https:\/\/qr-saa-s[^.]*\.vercel\.app$/.test(origin)) return true
+
+  return false
+}
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (server-to-server, curl, health checks)
-    if (!origin) {
-      return callback(null, true)
-    }
+    if (!origin) return callback(null, true)
 
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true)
-    }
+    if (isAllowedOrigin(origin)) return callback(null, true)
 
-    // Return false (not an Error) so Express does NOT route this to the 500
-    // error handler — the browser receives a proper CORS rejection instead.
+    // Return null/false — NOT an Error — so Express does NOT route this
+    // to the global 500 handler. The browser gets a proper CORS rejection.
     console.warn(`[CORS] Rejected origin: ${origin}`)
     return callback(null, false)
   },

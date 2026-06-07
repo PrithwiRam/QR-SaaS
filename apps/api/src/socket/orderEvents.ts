@@ -6,19 +6,23 @@ import { prisma } from '../lib/prisma'
 let io: Server
 
 export function initSocket(httpServer: import('http').Server, redisConnected: boolean) {
-  // Mirror the same allowed-origins list used by the HTTP CORS config so
-  // WebSocket connections are never accidentally blocked in production.
-  const socketAllowedOrigins = Array.from(
-    new Set([
-      'https://qr-saa-s-web.vercel.app',
-      'http://localhost:3000',
-      ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/+$/, '')] : []),
-    ])
-  )
+  // Use the same pattern-based validator as the HTTP CORS config so all
+  // Vercel preview deployments (qr-saa-s-*.vercel.app) are accepted.
+  const envUrl = (process.env.FRONTEND_URL || '').replace(/\/+$/, '')
+
+  function isSocketOriginAllowed(origin: string): boolean {
+    if (origin === 'http://localhost:3000') return true
+    if (envUrl && origin === envUrl) return true
+    if (/^https:\/\/qr-saa-s[^.]*\.vercel\.app$/.test(origin)) return true
+    return false
+  }
 
   io = new Server(httpServer, {
     cors: {
-      origin: socketAllowedOrigins,
+      origin: (origin, callback) => {
+        if (!origin || isSocketOriginAllowed(origin)) return callback(null, true)
+        return callback(new Error(`Socket origin not allowed: ${origin}`))
+      },
       credentials: true,
     },
     transports: ['websocket', 'polling'],
