@@ -125,6 +125,13 @@ app.get('/health', async (_req, res) => {
     db: dbStatus,
     redis: redisStatus,
     timestamp: new Date().toISOString(),
+    env: {
+      FRONTEND_URL: process.env.FRONTEND_URL || 'not-set',
+      PUBLIC_URL: process.env.PUBLIC_URL || 'not-set',
+      SITE_URL: process.env.SITE_URL || 'not-set',
+      NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL || 'not-set',
+      NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || 'not-set',
+    }
   })
 })
 
