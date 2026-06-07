@@ -42,8 +42,13 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     return
   }
 
-  const valid = await bcrypt.compare(password, user.passwordHash)
+  const valid = await bcrypt.compare(
+    password,
+    user.passwordHash
+  )
 
+  console.log('PASSWORD ENTERED:', password)
+  console.log('HASH STORED:', user.passwordHash)
   console.log('PASSWORD VALID:', valid)
   console.log('================================')
   if (!valid) {
