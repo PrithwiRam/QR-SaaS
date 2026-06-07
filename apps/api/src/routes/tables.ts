@@ -101,6 +101,8 @@ router.post('/:id/regenerate', requireAuth, requireTenant, async (req: Request, 
 
 // ─── DELETE /restaurants/:restaurantId/tables/:id — hard delete ──
 // Safety: Blocks deletion if the table has active (PENDING or PREPARING) orders.
+// Historical completed orders (SERVED/CANCELLED) are cleaned up automatically
+// inside a transaction because Order.tableId is a non-nullable FK.
 router.delete('/:id', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
   const { restaurantId, id } = req.params
   try {
@@ -110,7 +112,7 @@ router.delete('/:id', requireAuth, requireTenant, async (req: Request, res: Resp
       return
     }
 
-    // Block deletion if table has active orders
+    // Block deletion if table has any ACTIVE orders still in progress
     const activeOrders = await prisma.order.count({
       where: {
         tableId: id,
@@ -124,7 +126,37 @@ router.delete('/:id', requireAuth, requireTenant, async (req: Request, res: Resp
       return
     }
 
-    await prisma.table.delete({ where: { id } })
+    // Atomically clean up completed historical orders referencing this table,
+    // then delete the table. Order.tableId is non-nullable so we must remove
+    // the child rows before the parent row to satisfy the FK constraint.
+    await prisma.$transaction(async (tx) => {
+      // Find all completed/cancelled orders for this table
+      const completedOrders = await tx.order.findMany({
+        where: {
+          tableId: id,
+          status: { in: ['SERVED', 'CANCELLED'] },
+        },
+        select: { id: true },
+      })
+
+      if (completedOrders.length > 0) {
+        const completedOrderIds = completedOrders.map((o) => o.id)
+
+        // Delete order line items first (FK: OrderItem.orderId)
+        await tx.orderItem.deleteMany({
+          where: { orderId: { in: completedOrderIds } },
+        })
+
+        // Delete the completed orders themselves
+        await tx.order.deleteMany({
+          where: { id: { in: completedOrderIds } },
+        })
+      }
+
+      // Now safe to delete the table
+      await tx.table.delete({ where: { id } })
+    })
+
     res.json({ message: `Table ${table.tableNumber} deleted successfully` })
   } catch (e: any) {
     console.error('[Tables] Delete error:', e)
