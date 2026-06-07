@@ -2,6 +2,8 @@ import QRCode from 'qrcode'
 import { v4 as uuidv4 } from 'uuid'
 import { prisma } from '../lib/prisma'
 
+export let lastGeneratedQrUrl = 'none'
+
 // Read FRONTEND_URL at call-time (not module-load-time) so Railway env vars
 // are always picked up even if the module is cached before env is ready.
 function getFrontendUrl(): string {
@@ -39,6 +41,7 @@ export async function generateQrForTable(tableId: string) {
 
   const newToken = uuidv4()
   const qrUrl = `${getFrontendUrl()}/menu/${table.restaurant.slug}?table=${newToken}`
+  lastGeneratedQrUrl = qrUrl
   console.log("QR URL GENERATED:", qrUrl)
   const dataUrl = await generateQrDataUrl(qrUrl)
 
@@ -64,6 +67,7 @@ export async function generateQrForSingleTable(
 
   const token = uuidv4()
   const qrUrl = `${getFrontendUrl()}/menu/${restaurant.slug}?table=${token}`
+  lastGeneratedQrUrl = qrUrl
   console.log("QR URL GENERATED:", qrUrl)
   const dataUrl = await generateQrDataUrl(qrUrl)
 
@@ -95,6 +99,7 @@ export async function generateQrBulk(
     const tableNumber = startNumber + i
     const token = uuidv4()
     const qrUrl = `${frontendUrl}/menu/${restaurant.slug}?table=${token}`
+    lastGeneratedQrUrl = qrUrl
     console.log("QR URL GENERATED:", qrUrl)
     const dataUrl = await generateQrDataUrl(qrUrl)
 

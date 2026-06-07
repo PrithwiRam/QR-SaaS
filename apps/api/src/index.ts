@@ -17,6 +17,7 @@ import tableRoutes from './routes/tables'
 import orderRoutes from './routes/orders'
 import publicRoutes from './routes/public'
 import customerRoutes from './routes/customers'
+import { lastGeneratedQrUrl } from './services/qrService'
 
 const app = express()
 const httpServer = http.createServer(app)
@@ -133,6 +134,10 @@ app.get('/health', async (_req, res) => {
       NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || 'not-set',
     }
   })
+})
+
+app.get('/last-qr-url', (_req, res) => {
+  res.json({ lastGeneratedQrUrl })
 })
 
 /* =========================
