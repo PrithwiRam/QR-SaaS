@@ -22,6 +22,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   )
   if (!user || user.role !== 'SUPER_ADMIN') return null
 
+  const navLinks = [
+    { href: '/admin', label: '🏠 Dashboard', exact: true },
+    { href: '/admin/vendors', label: '👤 Vendors', exact: false },
+    { href: '/admin/billing', label: '💰 Billing & Revenue', exact: false },
+  ]
+
   return (
     <>
       <nav className="navbar">
@@ -33,12 +39,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </nav>
       <div className="page-shell">
         <aside className="sidebar">
-          <Link href="/admin" className={`sidebar-link ${pathname === '/admin' ? 'active' : ''}`}>
-            🏠 Dashboard
-          </Link>
-          <Link href="/admin/restaurants" className={`sidebar-link ${pathname.startsWith('/admin/restaurants') ? 'active' : ''}`}>
-            🏪 Restaurants
-          </Link>
+          {navLinks.map(l => {
+            const active = l.exact ? pathname === l.href : pathname.startsWith(l.href)
+            return (
+              <Link key={l.href} href={l.href} className={`sidebar-link ${active ? 'active' : ''}`}>
+                {l.label}
+              </Link>
+            )
+          })}
         </aside>
         <main className="page-content">
           {children}

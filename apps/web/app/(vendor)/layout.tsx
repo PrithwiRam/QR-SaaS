@@ -104,10 +104,13 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
   const base = `/vendor/${slug}`
   const navLinks = [
     { href: base, label: '📊 Dashboard', exact: true },
+    { href: `${base}/revenue`, label: '💰 Revenue', exact: false },
     { href: `${base}/menu`, label: '🍽️ Menu', exact: false },
     { href: `${base}/customize`, label: '🎨 Customize Menu', exact: false },
     { href: `${base}/tables`, label: '📋 Tables & QR', exact: false },
     { href: `${base}/customers`, label: '👥 Customers & Loyalty', exact: false },
+    { href: `${base}/loyalty`, label: '⭐ Loyalty Settings', exact: false },
+    { href: `${base}/marketing`, label: '📣 Marketing', exact: false },
     { href: `${base}/kitchen`, label: '🍳 Kitchen', exact: false },
   ]
 

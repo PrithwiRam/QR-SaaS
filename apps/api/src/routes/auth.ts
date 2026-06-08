@@ -32,25 +32,13 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     include: { restaurant: { select: { slug: true } } },
   })
 
-  console.log('========== LOGIN DEBUG ==========')
-  console.log('EMAIL:', email)
-  console.log('USER FOUND:', !!user)
-  console.log('ROLE:', user?.role)
-  console.log('RESTAURANT ID:', user?.restaurantId)
   if (!user) {
     res.status(401).json({ error: 'Invalid credentials' })
     return
   }
 
-  const valid = await bcrypt.compare(
-    password,
-    user.passwordHash
-  )
+  const valid = await bcrypt.compare(password, user.passwordHash)
 
-  console.log('PASSWORD ENTERED:', password)
-  console.log('HASH STORED:', user.passwordHash)
-  console.log('PASSWORD VALID:', valid)
-  console.log('================================')
   if (!valid) {
     res.status(401).json({ error: 'Invalid credentials' })
     return
@@ -73,6 +61,9 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
   } catch {
     // Redis unavailable — continue without refresh token storage
   }
+
+  // Update last login timestamp (non-blocking)
+  prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(() => {})
 
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,

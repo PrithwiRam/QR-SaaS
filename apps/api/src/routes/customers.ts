@@ -217,18 +217,73 @@ router.patch('/:customerId/points', requireAuth, requireTenant, async (req: Requ
       return
     }
 
+    // Guard: loyalty points cannot go negative
+    const newPoints = Math.max(0, customer.loyaltyPoints + points)
+
     const updated = await prisma.customer.update({
       where: { id: customerId, restaurantId },
-      data: {
-        loyaltyPoints: {
-          increment: points
-        }
-      }
+      data: { loyaltyPoints: newPoints },
     })
 
     res.json(updated)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to adjust points' })
+  }
+})
+
+// ─── GET /loyalty-config — get loyalty configuration ─────────────
+router.get('/loyalty-config', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId } = req.params
+
+  try {
+    let config = await prisma.loyaltyConfig.findUnique({ where: { restaurantId } })
+    if (!config) {
+      // Return defaults if none configured yet
+      config = {
+        id: '',
+        restaurantId,
+        isEnabled: true,
+        pointsPerRupee: 0.1,
+        minOrderForPoints: 0 as any,
+        pointsToRupee: 0.1,
+        minPointsRedeem: 100,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any
+    }
+    res.json(config)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to fetch loyalty config' })
+  }
+})
+
+// ─── PUT /loyalty-config — upsert loyalty configuration ──────────
+router.put('/loyalty-config', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId } = req.params
+
+  const schema = (await import('zod')).z.object({
+    isEnabled: (await import('zod')).z.boolean().optional(),
+    pointsPerRupee: (await import('zod')).z.number().min(0).max(10).optional(),
+    minOrderForPoints: (await import('zod')).z.number().min(0).optional(),
+    pointsToRupee: (await import('zod')).z.number().min(0).max(10).optional(),
+    minPointsRedeem: (await import('zod')).z.number().int().min(0).optional(),
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    return
+  }
+
+  try {
+    const config = await prisma.loyaltyConfig.upsert({
+      where: { restaurantId },
+      update: parsed.data,
+      create: { restaurantId, ...parsed.data },
+    })
+    res.json(config)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update loyalty config' })
   }
 })
 

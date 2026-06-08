@@ -62,6 +62,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
   const [selectedOffer, setSelectedOffer] = useState<any>(null)
   const [checkInName, setCheckInName] = useState('')
   const [checkInPhone, setCheckInPhone] = useState('')
+  const [consentMarketing, setConsentMarketing] = useState(false)
   const [phoneLookupMode, setPhoneLookupMode] = useState(false)
   const [lookupPhoneInput, setLookupPhoneInput] = useState('')
   const [checkInError, setCheckInError] = useState('')
@@ -380,7 +381,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
     }
     setCheckingIn(true)
     try {
-      const data = await api.checkInCustomer(restaurant.slug, checkInName.trim(), checkInPhone.trim())
+      const data = await api.checkInCustomer(restaurant.slug, checkInName.trim(), checkInPhone.trim(), consentMarketing)
       setCustomer(data)
       localStorage.setItem(`customer_${restaurant.slug}`, JSON.stringify(data))
       setShowCheckInModal(false)
@@ -864,7 +865,7 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
                     required
                   />
                 </div>
-                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
                   <label>Phone Number</label>
                   <input
                     type="tel"
@@ -874,6 +875,42 @@ export default function CustomerMenuClient({ restaurant, categories, tableId, ta
                     onChange={e => setCheckInPhone(e.target.value)}
                     required
                   />
+                </div>
+                {/* WhatsApp Marketing Consent */}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '0.75rem',
+                    alignItems: 'flex-start',
+                    padding: '0.75rem',
+                    background: 'rgba(16,185,129,0.06)',
+                    border: '1px solid rgba(16,185,129,0.15)',
+                    borderRadius: '10px',
+                    marginBottom: '1.25rem',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setConsentMarketing(v => !v)}
+                >
+                  <div
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '5px',
+                      border: `2px solid ${consentMarketing ? '#10B981' : '#4B5563'}`,
+                      background: consentMarketing ? '#10B981' : 'transparent',
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: '1px',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {consentMarketing && <span style={{ color: '#fff', fontSize: '0.7rem', fontWeight: 900 }}>✓</span>}
+                  </div>
+                  <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.75)', lineHeight: 1.4 }}>
+                    I agree to receive offers, promotions and updates via WhatsApp from this restaurant. (Optional)
+                  </span>
                 </div>
                 <button
                   type="submit"

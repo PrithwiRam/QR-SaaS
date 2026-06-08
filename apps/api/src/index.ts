@@ -17,6 +17,9 @@ import tableRoutes from './routes/tables'
 import orderRoutes from './routes/orders'
 import publicRoutes from './routes/public'
 import customerRoutes from './routes/customers'
+import vendorRoutes from './routes/vendors'
+import analyticsRoutes from './routes/analytics'
+import marketingRoutes from './routes/marketing'
 import { lastGeneratedQrUrl } from './services/qrService'
 
 const app = express()
@@ -86,20 +89,46 @@ app.options('*', cors(corsOptions))
 app.use(express.json())
 app.use(cookieParser())
 app.use(morgan('dev'))
+app.disable('x-powered-by')
 
 app.use('/public', express.static(path.join(__dirname, '../public')))
+
+// ─── Rate limiting on auth endpoints ────────────────────────────
+const rateLimit: any = (() => {
+  const windowMs = 15 * 60 * 1000 // 15 minutes
+  const max = 20
+  const store = new Map<string, { count: number; reset: number }>()
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const key = (req.ip || 'unknown')
+    const now = Date.now()
+    let entry = store.get(key)
+    if (!entry || now > entry.reset) {
+      entry = { count: 0, reset: now + windowMs }
+      store.set(key, entry)
+    }
+    entry.count++
+    if (entry.count > max) {
+      res.status(429).json({ error: 'Too many requests. Please wait before trying again.' })
+      return
+    }
+    next()
+  }
+})()
 
 /* =========================
    ROUTES
 ========================= */
 
-app.use(`${v1}/auth`, authRoutes)
+app.use(`${v1}/auth`, rateLimit, authRoutes)
 app.use(`${v1}/restaurants`, restaurantRoutes)
 app.use(`${v1}/restaurants/:restaurantId`, menuRoutes)
 app.use(`${v1}/restaurants/:restaurantId/tables`, tableRoutes)
 app.use(`${v1}/restaurants/:restaurantId/customers`, customerRoutes)
+app.use(`${v1}/restaurants/:restaurantId/marketing`, marketingRoutes)
 app.use(`${v1}/orders`, orderRoutes)
 app.use(`${v1}/menu`, publicRoutes)
+app.use(`${v1}/vendors`, vendorRoutes)
+app.use(`${v1}/analytics`, analyticsRoutes)
 
 /* =========================
    HEALTH

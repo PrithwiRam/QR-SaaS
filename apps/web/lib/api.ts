@@ -57,6 +57,25 @@ export const api = {
   customizeSettings: (data: { restaurantId?: string; name?: string; logoUrl?: string | null; themeColor?: string; menuTheme?: string }) =>
     request<any>('/restaurants/customize/settings', { method: 'PATCH', body: JSON.stringify(data) }),
 
+  // Vendors (super-admin)
+  getVendors: () => request<any>('/vendors'),
+  getVendor: (id: string) => request<any>(`/vendors/${id}`),
+  deleteVendor: (id: string) => request<any>(`/vendors/${id}`, { method: 'DELETE' }),
+  resetVendorPassword: (id: string, newPassword: string) =>
+    request<any>(`/vendors/${id}/reset-password`, { method: 'PATCH', body: JSON.stringify({ newPassword }) }),
+  updateVendor: (id: string, data: any) =>
+    request<any>(`/vendors/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Analytics
+  getGlobalAnalytics: () => request<any>('/analytics/global'),
+  getRestaurantAnalytics: (restaurantId: string) => request<any>(`/analytics/restaurant/${restaurantId}`),
+  exportOrders: (restaurantId: string, from?: string, to?: string) => {
+    const params = new URLSearchParams({ restaurantId })
+    if (from) params.set('from', from)
+    if (to) params.set('to', to)
+    return `${BASE}/analytics/export/csv?${params}`
+  },
+
   // Categories
   getCategories: (rid: string) => request<any>(`/restaurants/${rid}/categories`),
   createCategory: (rid: string, data: any) => request<any>(`/restaurants/${rid}/categories`, { method: 'POST', body: JSON.stringify(data) }),
@@ -91,12 +110,14 @@ export const api = {
   placeOrder: (data: any) => request<any>(`/orders`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Customers & Offers (Public)
-  checkInCustomer: (slug: string, name: string, phone: string) =>
-    request<any>(`/menu/${slug}/customers`, { method: 'POST', body: JSON.stringify({ name, phone }) }),
+  checkInCustomer: (slug: string, name: string, phone: string, consentMarketing = false) =>
+    request<any>(`/menu/${slug}/customers`, { method: 'POST', body: JSON.stringify({ name, phone, consentMarketing }) }),
   lookupCustomer: (slug: string, phone: string) =>
     request<any>(`/menu/${slug}/customers/${phone}`),
   getActiveOffers: (slug: string) =>
     request<any>(`/menu/${slug}/offers`),
+  getCustomerProfile: (slug: string, phone: string) =>
+    request<any>(`/menu/${slug}/profile/${encodeURIComponent(phone)}`),
 
   // Customers & Offers (Vendor)
   getVendorCustomers: (rid: string, q?: string) =>
@@ -109,4 +130,24 @@ export const api = {
     request<any>(`/restaurants/${rid}/customers/offers/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteVendorOffer: (rid: string, id: string) =>
     request<any>(`/restaurants/${rid}/customers/offers/${id}`, { method: 'DELETE' }),
+  adjustCustomerPoints: (rid: string, customerId: string, points: number) =>
+    request<any>(`/restaurants/${rid}/customers/${customerId}/points`, { method: 'PATCH', body: JSON.stringify({ points }) }),
+
+  // Loyalty Config (Vendor)
+  getLoyaltyConfig: (rid: string) =>
+    request<any>(`/restaurants/${rid}/customers/loyalty-config`),
+  saveLoyaltyConfig: (rid: string, data: any) =>
+    request<any>(`/restaurants/${rid}/customers/loyalty-config`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Marketing (Vendor)
+  getSegments: (rid: string) =>
+    request<any>(`/restaurants/${rid}/marketing/segments`),
+  getCampaigns: (rid: string) =>
+    request<any>(`/restaurants/${rid}/marketing/campaigns`),
+  createCampaign: (rid: string, data: any) =>
+    request<any>(`/restaurants/${rid}/marketing/campaigns`, { method: 'POST', body: JSON.stringify(data) }),
+  sendCampaign: (rid: string, campaignId: string) =>
+    request<any>(`/restaurants/${rid}/marketing/campaigns/${campaignId}/send`, { method: 'POST' }),
+  deleteCampaign: (rid: string, campaignId: string) =>
+    request<any>(`/restaurants/${rid}/marketing/campaigns/${campaignId}`, { method: 'DELETE' }),
 }

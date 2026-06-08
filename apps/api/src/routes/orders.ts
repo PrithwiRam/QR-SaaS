@@ -127,8 +127,15 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
   const finalAmount = totalAmount - discountAmount
 
   if (customerId) {
-    // 10% cash-back in loyalty points (rounded down)
-    customerPointsEarned = Math.floor(finalAmount * 0.1)
+    // Fetch restaurant's loyalty config (falls back to 10% if not set)
+    const loyaltyConfig = await prisma.loyaltyConfig.findUnique({ where: { restaurantId } })
+    const loyaltyEnabled = loyaltyConfig?.isEnabled ?? true
+    const pointsPerRupee = loyaltyConfig?.pointsPerRupee ?? 0.1
+    const minOrder = Number(loyaltyConfig?.minOrderForPoints ?? 0)
+
+    if (loyaltyEnabled && finalAmount >= minOrder) {
+      customerPointsEarned = Math.floor(finalAmount * pointsPerRupee)
+    }
   }
 
   // 5. Create order atomically inside a transaction to update customer points

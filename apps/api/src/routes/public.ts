@@ -127,6 +127,7 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
   const schema = z.object({
     name: z.string().min(1).max(100),
     phone: z.string().min(8).max(15),
+    consentMarketing: z.boolean().default(false),
   })
 
   const parsed = schema.safeParse(req.body)
@@ -135,7 +136,7 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
     return
   }
 
-  const { name, phone } = parsed.data
+  const { name, phone, consentMarketing } = parsed.data
 
   try {
     const restaurant = await prisma.restaurant.findUnique({
@@ -165,6 +166,7 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
         data: {
           name,
           visitCount: { increment: 1 },
+          ...(consentMarketing ? { consentMarketing: true } : {}),
         },
       })
     } else {
@@ -175,6 +177,7 @@ router.post('/:slug/customers', async (req: Request, res: Response): Promise<voi
           phone,
           visitCount: 1,
           loyaltyPoints: 50,
+          consentMarketing,
         },
       })
     }
@@ -246,6 +249,60 @@ router.get('/:slug/offers', async (req: Request, res: Response): Promise<void> =
     res.json(offers)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch offers' })
+  }
+})
+
+// ─── GET /menu/:slug/profile/:phone — customer profile ──────────────
+router.get('/:slug/profile/:phone', async (req: Request, res: Response): Promise<void> => {
+  const { slug, phone } = req.params
+
+  try {
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { slug, isActive: true },
+      select: { id: true },
+    })
+    if (!restaurant) {
+      res.status(404).json({ error: 'Restaurant not found' })
+      return
+    }
+
+    const customer = await prisma.customer.findUnique({
+      where: { restaurantId_phone: { restaurantId: restaurant.id, phone } },
+    })
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not found' })
+      return
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { customerId: customer.id, status: { not: 'CANCELLED' } },
+      orderBy: { placedAt: 'desc' },
+      take: 20,
+      include: { items: { select: { nameSnapshot: true, quantity: true, subtotal: true } } },
+    })
+
+    const totalSpend = orders.reduce((s: number, o: any) => s + Number(o.totalAmount), 0)
+
+    res.json({
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      loyaltyPoints: customer.loyaltyPoints,
+      visitCount: customer.visitCount,
+      memberSince: customer.createdAt,
+      totalOrders: orders.length,
+      totalSpend,
+      orders: orders.map((o: any) => ({
+        id: o.id,
+        totalAmount: Number(o.totalAmount),
+        status: o.status,
+        placedAt: o.placedAt,
+        tableNumber: o.tableNumber,
+        items: o.items,
+      })),
+    })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to fetch profile' })
   }
 })
 
