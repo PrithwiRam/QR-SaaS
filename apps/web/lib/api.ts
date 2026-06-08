@@ -118,6 +118,14 @@ export const api = {
     request<any>(`/menu/${slug}/offers`),
   getCustomerProfile: (slug: string, phone: string) =>
     request<any>(`/menu/${slug}/profile/${encodeURIComponent(phone)}`),
+  claimReward: (slug: string, data: { phone: string; offerId: string }) =>
+    request<any>(`/menu/${slug}/claims`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // Claims (Vendor)
+  getClaims: (rid: string) =>
+    request<any>(`/restaurants/${rid}/claims`),
+  resolveClaim: (rid: string, claimId: string, status: 'APPROVED' | 'REJECTED') =>
+    request<any>(`/restaurants/${rid}/claims/${claimId}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
 
   // Customers & Offers (Vendor)
   getVendorCustomers: (rid: string, q?: string) =>

@@ -112,6 +112,7 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
     { href: `${base}/loyalty`, label: '⭐ Loyalty Settings', exact: false },
     { href: `${base}/marketing`, label: '📣 Marketing', exact: false },
     { href: `${base}/kitchen`, label: '🍳 Kitchen', exact: false },
+    { href: `${base}/settings`, label: '⚙️ Settings', exact: false },
   ]
 
   return (

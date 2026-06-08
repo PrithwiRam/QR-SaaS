@@ -22,6 +22,8 @@ export default function MenuManagePage() {
   const [confirmDelete, setConfirmDelete] = useState<any | null>(null)
 
   const [catForm, setCatForm] = useState({ name: '', sortOrder: 0 })
+  const [showReorderCatModal, setShowReorderCatModal] = useState(false)
+  const [reorderList, setReorderList] = useState<any[]>([])
   const [itemForm, setItemForm] = useState({
     name: '',
     description: '',
@@ -207,6 +209,45 @@ export default function MenuManagePage() {
     setError('')
   }
 
+  function openReorderModal() {
+    const list = [...categories].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+    setReorderList(list.map((c, idx) => ({ id: c.id, name: c.name, sortOrder: c.sortOrder || idx })))
+    setShowReorderCatModal(true)
+  }
+
+  function moveCategory(index: number, direction: 'UP' | 'DOWN') {
+    const nextList = [...reorderList]
+    if (direction === 'UP' && index > 0) {
+      const temp = nextList[index].sortOrder
+      nextList[index].sortOrder = nextList[index - 1].sortOrder
+      nextList[index - 1].sortOrder = temp
+    } else if (direction === 'DOWN' && index < nextList.length - 1) {
+      const temp = nextList[index].sortOrder
+      nextList[index].sortOrder = nextList[index + 1].sortOrder
+      nextList[index + 1].sortOrder = temp
+    }
+    nextList.sort((a, b) => a.sortOrder - b.sortOrder)
+    setReorderList(nextList)
+  }
+
+  async function handleSaveOrder() {
+    if (!restaurantId) return
+    setSubmitting(true)
+    setError('')
+    try {
+      await Promise.all(
+        reorderList.map(c => api.updateCategory(restaurantId, c.id, { sortOrder: c.sortOrder }))
+      )
+      setShowReorderCatModal(false)
+      showMsg('Category order updated!')
+      await loadMenu(restaurantId)
+    } catch (e: any) {
+      setError(e.message || 'Failed to reorder categories')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   if (loading) return <div className="loading-spinner" />
 
   const activeCat = categories.find((c: any) => c.id === selectedCat)
@@ -225,6 +266,9 @@ export default function MenuManagePage() {
         <div className="flex gap-2">
           <button className="btn btn-secondary" onClick={() => { setCatForm({ name: '', sortOrder: 0 }); setError(''); setShowCatModal(true) }}>
             + Category
+          </button>
+          <button className="btn btn-secondary" onClick={openReorderModal} disabled={categories.length <= 1}>
+            ⇅ Reorder
           </button>
           <button
             id="add-item-btn"
@@ -533,6 +577,101 @@ export default function MenuManagePage() {
                 disabled={submitting}
               >
                 {submitting ? 'Deleting...' : 'Delete Item'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Reorder Categories Modal ───────────────────────── */}
+      {showReorderCatModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowReorderCatModal(false)}>
+          <div className="modal" style={{ maxWidth: '450px' }}>
+            <div className="modal-title">⇅ Reorder Categories</div>
+            {error && <div className="alert alert-error">{error}</div>}
+            
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              Use the arrows to reorder categories, or edit position numbers directly.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
+              {reorderList.map((item, idx) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.75rem 1rem',
+                    background: '#18181B',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: '12px'
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{item.name}</div>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <input
+                      type="number"
+                      value={item.sortOrder}
+                      onChange={e => {
+                        const val = parseInt(e.target.value) || 0
+                        setReorderList(prev => prev.map(c => c.id === item.id ? { ...c, sortOrder: val } : c))
+                      }}
+                      style={{
+                        width: '50px',
+                        padding: '0.25rem',
+                        textAlign: 'center',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle)',
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        fontSize: '0.85rem'
+                      }}
+                    />
+
+                    <button
+                      type="button"
+                      disabled={idx === 0}
+                      onClick={() => moveCategory(idx, 'UP')}
+                      style={{
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle)',
+                        background: idx === 0 ? 'rgba(255,255,255,0.02)' : 'var(--bg-secondary)',
+                        color: idx === 0 ? 'var(--text-muted)' : 'var(--text-primary)',
+                        cursor: idx === 0 ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      ▲
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={idx === reorderList.length - 1}
+                      onClick={() => moveCategory(idx, 'DOWN')}
+                      style={{
+                        padding: '0.25rem 0.5rem',
+                        borderRadius: '6px',
+                        border: '1px solid var(--border-subtle)',
+                        background: idx === reorderList.length - 1 ? 'rgba(255,255,255,0.02)' : 'var(--bg-secondary)',
+                        color: idx === reorderList.length - 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                        cursor: idx === reorderList.length - 1 ? 'not-allowed' : 'pointer'
+                      }}
+                    >
+                      ▼
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setShowReorderCatModal(false)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={handleSaveOrder} disabled={submitting}>
+                {submitting ? 'Saving...' : 'Save Order'}
               </button>
             </div>
           </div>

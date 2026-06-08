@@ -39,17 +39,30 @@ const STATUS_BTN_LABEL: Record<OrderStatus, string> = {
   CANCELLED: 'Cancelled',
 }
 
+function getLocalNotificationSettings() {
+  if (typeof window === 'undefined') return { soundEnabled: true, volume: 0.8, repeatAlerts: true, browserNotificationsEnabled: false }
+  try {
+    const raw = localStorage.getItem('vendor_notification_settings')
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return { soundEnabled: true, volume: 0.8, repeatAlerts: true, browserNotificationsEnabled: false }
+}
+
 function playNotificationSound() {
   try {
+    const settings = getLocalNotificationSettings()
+    if (!settings.soundEnabled) return
+
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
     const now = ctx.currentTime
+    const vol = settings.volume ?? 0.8
 
     // First chime (D5)
     const osc1 = ctx.createOscillator()
     const gain1 = ctx.createGain()
     osc1.type = 'sine'
     osc1.frequency.setValueAtTime(587.33, now) // D5
-    gain1.gain.setValueAtTime(0.35, now)
+    gain1.gain.setValueAtTime(0.35 * vol, now)
     gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
     osc1.connect(gain1)
     gain1.connect(ctx.destination)
@@ -61,7 +74,7 @@ function playNotificationSound() {
     const gain2 = ctx.createGain()
     osc2.type = 'sine'
     osc2.frequency.setValueAtTime(880.00, now + 0.12) // A5
-    gain2.gain.setValueAtTime(0.35, now + 0.12)
+    gain2.gain.setValueAtTime(0.35 * vol, now + 0.12)
     gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7)
     osc2.connect(gain2)
     gain2.connect(ctx.destination)
@@ -70,6 +83,27 @@ function playNotificationSound() {
   } catch (err) {
     console.warn("Failed to play notification audio chime:", err)
   }
+}
+
+// Order timer component to calculate "Waiting: X minutes" in real-time
+function OrderTimer({ placedAt }: { placedAt: string }) {
+  const [minutes, setMinutes] = useState(0)
+
+  useEffect(() => {
+    function update() {
+      const diffMs = Date.now() - new Date(placedAt).getTime()
+      setMinutes(Math.floor(diffMs / 60000))
+    }
+    update()
+    const interval = setInterval(update, 30000) // update every 30s
+    return () => clearInterval(interval)
+  }, [placedAt])
+
+  return (
+    <span style={{ fontWeight: 600, color: minutes >= 10 ? 'var(--accent-red)' : 'var(--text-secondary)' }}>
+      Waiting: {minutes} {minutes === 1 ? 'minute' : 'minutes'}
+    </span>
+  )
 }
 
 export default function KitchenPage() {
@@ -93,6 +127,19 @@ export default function KitchenPage() {
   const [updatingStockId, setUpdatingStockId] = useState<string | null>(null)
 
   const socketRef = useRef<Socket | null>(null)
+
+  // Repeat chime logic
+  useEffect(() => {
+    if (!kitchenNotification) return
+    const settings = getLocalNotificationSettings()
+    if (!settings.repeatAlerts) return
+
+    const interval = setInterval(() => {
+      playNotificationSound()
+    }, 10000) // repeat every 10 seconds
+
+    return () => clearInterval(interval)
+  }, [kitchenNotification])
 
   // Load initial orders & items
   useEffect(() => {
@@ -137,8 +184,19 @@ export default function KitchenPage() {
 
       // Pop up premium banner toast
       setKitchenNotification({ tableNumber: order.tableNumber, id: order.id })
-      // Auto-hide after 5 seconds
-      setTimeout(() => setKitchenNotification(null), 5000)
+
+      // Trigger browser notification if allowed
+      try {
+        const settings = getLocalNotificationSettings()
+        if (settings.browserNotificationsEnabled && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          new Notification(`New Order - Table ${order.tableNumber}`, {
+            body: `Order #${order.id.slice(0, 5).toUpperCase()} received with ${order.items.length} items.`,
+            tag: order.id,
+          })
+        }
+      } catch (err) {
+        console.warn('Failed to fire browser notification:', err)
+      }
     })
 
     socket.on('order_updated', (updated: Order) => {
@@ -370,7 +428,10 @@ export default function KitchenPage() {
               {/* Order Info & Time */}
               <div className="flex justify-between items-center text-xs text-muted" style={{ marginBottom: '0.65rem' }}>
                 <span>Order #{order.id.slice(0, 5).toUpperCase()}</span>
-                <span>{new Date(order.placedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                  <span>{new Date(order.placedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <OrderTimer placedAt={order.placedAt} />
+                </div>
               </div>
 
               {/* Customer Info */}

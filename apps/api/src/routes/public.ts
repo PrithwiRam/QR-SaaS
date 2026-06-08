@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { requireAuth } from '../middleware/auth'
+import { redis } from '../lib/redis'
+import { getIo } from '../socket/orderEvents'
 
 const router = Router()
 
@@ -68,10 +70,24 @@ router.get('/:slug/resolve', async (req: Request, res: Response): Promise<void> 
 })
 
 // ─── GET /menu/:slug ────────────────────────────────────────────
+// Optimized with Redis caching (5 minutes TTL) to prevent DB overload.
 router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
   const { slug } = req.params
+  const cacheKey = `menu:slug:${slug}`
 
   try {
+    // Check Redis cache first
+    try {
+      const cached = await redis.get(cacheKey)
+      if (cached) {
+        res.setHeader('Cache-Control', 'public, max-age=60')
+        res.json(JSON.parse(cached))
+        return
+      }
+    } catch (err) {
+      console.warn('[Redis Cache] error fetching:', err)
+    }
+
     const restaurant = await prisma.restaurant.findUnique({
       where: { slug, isActive: true },
       select: {
@@ -110,11 +126,18 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
       },
     })
 
-    // FIXED: explicit type for callback parameter
     const populated = categories.filter(c => c.items.length > 0)
+    const payload = { restaurant, categories: populated }
+
+    // Save to Redis cache
+    try {
+      await redis.set(cacheKey, JSON.stringify(payload), 'EX', 300)
+    } catch (err) {
+      console.warn('[Redis Cache] error setting:', err)
+    }
 
     res.setHeader('Cache-Control', 'public, max-age=60')
-    res.json({ restaurant, categories: populated })
+    res.json(payload)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to load menu' })
   }
@@ -268,6 +291,7 @@ router.get('/:slug/profile/:phone', async (req: Request, res: Response): Promise
 
     const customer = await prisma.customer.findUnique({
       where: { restaurantId_phone: { restaurantId: restaurant.id, phone } },
+      include: { claims: { include: { offer: true }, orderBy: { createdAt: 'desc' } } },
     })
     if (!customer) {
       res.status(404).json({ error: 'Customer not found' })
@@ -292,6 +316,14 @@ router.get('/:slug/profile/:phone', async (req: Request, res: Response): Promise
       memberSince: customer.createdAt,
       totalOrders: orders.length,
       totalSpend,
+      claims: customer.claims.map((c: any) => ({
+        id: c.id,
+        status: c.status,
+        claimCode: c.claimCode,
+        createdAt: c.createdAt,
+        offerTitle: c.offer.title,
+        pointsRequired: c.offer.pointsRequired,
+      })),
       orders: orders.map((o: any) => ({
         id: o.id,
         totalAmount: Number(o.totalAmount),
@@ -303,6 +335,96 @@ router.get('/:slug/profile/:phone', async (req: Request, res: Response): Promise
     })
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch profile' })
+  }
+})
+
+// ─── POST /menu/:slug/claims — generate reward claim request ─────────
+router.post('/:slug/claims', async (req: Request, res: Response): Promise<void> => {
+  const { slug } = req.params
+  const schema = z.object({
+    phone: z.string().min(8).max(15),
+    offerId: z.string().uuid(),
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    return
+  }
+
+  const { phone, offerId } = parsed.data
+
+  try {
+    const restaurant = await prisma.restaurant.findUnique({
+      where: { slug, isActive: true },
+      select: { id: true },
+    })
+    if (!restaurant) {
+      res.status(404).json({ error: 'Restaurant not found' })
+      return
+    }
+
+    // Load customer
+    const customer = await prisma.customer.findUnique({
+      where: { restaurantId_phone: { restaurantId: restaurant.id, phone } },
+    })
+    if (!customer) {
+      res.status(404).json({ error: 'Customer not registered' })
+      return
+    }
+
+    // Load offer
+    const offer = await prisma.offer.findFirst({
+      where: { id: offerId, restaurantId: restaurant.id, isActive: true },
+    })
+    if (!offer) {
+      res.status(404).json({ error: 'Offer not found or inactive' })
+      return
+    }
+
+    // Check points
+    if (customer.loyaltyPoints < offer.pointsRequired) {
+      res.status(400).json({ error: `Insufficient points. Required: ${offer.pointsRequired}, Available: ${customer.loyaltyPoints}` })
+      return
+    }
+
+    // Generate unique random claim code (e.g. CLAIM-8492)
+    const codeSuffix = Math.floor(1000 + Math.random() * 9000).toString()
+    const claimCode = `CLAIM-${codeSuffix}`
+
+    // Deduct points and save claim atomically
+    const claim = await prisma.$transaction(async (tx) => {
+      // Deduct points
+      await tx.customer.update({
+        where: { id: customer.id },
+        data: { loyaltyPoints: { decrement: offer.pointsRequired } },
+      })
+
+      // Create claim
+      return tx.rewardClaim.create({
+        data: {
+          restaurantId: restaurant.id,
+          customerId: customer.id,
+          offerId: offer.id,
+          claimCode,
+          status: 'PENDING',
+        },
+        include: {
+          offer: true,
+          customer: { select: { name: true, phone: true } },
+        },
+      })
+    })
+
+    // Emit live socket event to notify vendor dashboard/kitchen
+    try {
+      const io = getIo()
+      io.to(`restaurant:${restaurant.id}`).emit('new_claim', claim)
+    } catch {}
+
+    res.status(201).json(claim)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to submit reward claim' })
   }
 })
 

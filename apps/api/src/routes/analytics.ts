@@ -1,42 +1,76 @@
 import { Router, Request, Response } from 'express'
 import { prisma } from '../lib/prisma'
+import { redis } from '../lib/redis'
 import { requireAuth, requireSuperAdmin, requireTenant } from '../middleware/auth'
 
 const router = Router()
 
-// ─── Helper: date range helpers ──────────────────────────────────
+// ─── Cache helpers ────────────────────────────────────────────────
+const ANALYTICS_TTL = 120 // 2 min cache for analytics
+async function cacheGet<T>(key: string): Promise<T | null> {
+  try {
+    const v = await redis.get(key)
+    return v ? (JSON.parse(v) as T) : null
+  } catch { return null }
+}
+async function cacheSet(key: string, value: unknown, ttl = ANALYTICS_TTL) {
+  try { await redis.set(key, JSON.stringify(value), 'EX', ttl) } catch {}
+}
+
+// ─── Date helpers ─────────────────────────────────────────────────
 function startOfDay(d: Date) {
-  const r = new Date(d)
-  r.setHours(0, 0, 0, 0)
-  return r
-}
-function endOfDay(d: Date) {
-  const r = new Date(d)
-  r.setHours(23, 59, 59, 999)
-  return r
-}
-function daysAgo(n: number) {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
-  return startOfDay(d)
+  const r = new Date(d); r.setHours(0, 0, 0, 0); return r
 }
 function startOfWeek() {
-  const d = new Date()
-  d.setDate(d.getDate() - d.getDay())
-  return startOfDay(d)
+  const d = new Date(); d.setDate(d.getDate() - d.getDay()); return startOfDay(d)
 }
 function startOfMonth() {
-  const d = new Date()
-  return new Date(d.getFullYear(), d.getMonth(), 1)
+  const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1)
+}
+function daysAgo(n: number) {
+  const d = new Date(); d.setDate(d.getDate() - n); return startOfDay(d)
+}
+
+// ─── Build revenue-by-day from Prisma orders ──────────────────────
+// We use Prisma's ORM (no raw SQL) to avoid column-name mapping issues.
+// Orders are fetched for last 30 days, then grouped in JS by date string.
+async function buildDailyRevenue(
+  restaurantId: string | null,
+  thirtyDaysAgo: Date
+): Promise<{ date: string; revenue: number; orders: number }[]> {
+  const where: any = {
+    status: { not: 'CANCELLED' as const },
+    placedAt: { gte: thirtyDaysAgo },
+  }
+  if (restaurantId) where.restaurantId = restaurantId
+
+  const orders = await prisma.order.findMany({
+    where,
+    select: { placedAt: true, totalAmount: true },
+  })
+
+  // Group by YYYY-MM-DD
+  const map: Record<string, { revenue: number; orders: number }> = {}
+  for (const o of orders) {
+    const date = o.placedAt.toISOString().slice(0, 10)
+    if (!map[date]) map[date] = { revenue: 0, orders: 0 }
+    map[date].revenue += Number(o.totalAmount)
+    map[date].orders += 1
+  }
+
+  return Object.entries(map)
+    .map(([date, v]) => ({ date, revenue: parseFloat(v.revenue.toFixed(2)), orders: v.orders }))
+    .sort((a, b) => a.date.localeCompare(b.date))
 }
 
 // ─── GET /analytics/global — SUPER_ADMIN ────────────────────────
 router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res: Response): Promise<void> => {
+  const cacheKey = 'analytics:global'
+  const cached = await cacheGet<any>(cacheKey)
+  if (cached) { res.json(cached); return }
+
   try {
     const now = new Date()
-    const todayStart = startOfDay(now)
-    const weekStart = startOfWeek()
-    const monthStart = startOfMonth()
     const thirtyDaysAgo = daysAgo(30)
 
     const [
@@ -47,38 +81,38 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
       totalRestaurants,
       totalCustomers,
       topRestaurantsRaw,
+      dailyRevenue,
     ] = await Promise.all([
-      // All-time totals
       prisma.order.aggregate({
         where: { status: { not: 'CANCELLED' } },
         _sum: { totalAmount: true },
         _count: { id: true },
         _avg: { totalAmount: true },
       }),
-      // Today
       prisma.order.aggregate({
-        where: { status: { not: 'CANCELLED' }, placedAt: { gte: todayStart } },
+        where: { status: { not: 'CANCELLED' }, placedAt: { gte: startOfDay(now) } },
         _sum: { totalAmount: true },
         _count: { id: true },
       }),
-      // This week
       prisma.order.aggregate({
-        where: { status: { not: 'CANCELLED' }, placedAt: { gte: weekStart } },
+        where: { status: { not: 'CANCELLED' }, placedAt: { gte: startOfWeek() } },
         _sum: { totalAmount: true },
         _count: { id: true },
       }),
-      // This month
       prisma.order.aggregate({
-        where: { status: { not: 'CANCELLED' }, placedAt: { gte: monthStart } },
+        where: { status: { not: 'CANCELLED' }, placedAt: { gte: startOfMonth() } },
         _sum: { totalAmount: true },
         _count: { id: true },
       }),
       prisma.restaurant.count({ where: { isActive: true } }),
       prisma.customer.count(),
-      // Top restaurants by revenue
       prisma.restaurant.findMany({
-        take: 10,
-        include: {
+        take: 20,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          isActive: true,
           _count: { select: { orders: true } },
           orders: {
             where: { status: { not: 'CANCELLED' } },
@@ -86,6 +120,7 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
           },
         },
       }),
+      buildDailyRevenue(null, thirtyDaysAgo),
     ])
 
     const topRestaurants = topRestaurantsRaw
@@ -100,20 +135,7 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
       .sort((a: any, b: any) => b.revenue - a.revenue)
       .slice(0, 10)
 
-    // Daily revenue for last 30 days using raw query
-    const dailyRevenue = await prisma.$queryRaw<{ date: string; revenue: number; orders: number }[]>`
-      SELECT 
-        DATE(placed_at) as date,
-        COALESCE(SUM(total_amount), 0)::float as revenue,
-        COUNT(*)::int as orders
-      FROM "Order"
-      WHERE status != 'CANCELLED' 
-        AND placed_at >= ${thirtyDaysAgo}
-      GROUP BY DATE(placed_at)
-      ORDER BY date DESC
-    `
-
-    res.json({
+    const payload = {
       totalRevenue: Number(totalStats._sum.totalAmount || 0),
       totalOrders: totalStats._count.id,
       avgOrderValue: Number(totalStats._avg.totalAmount || 0),
@@ -127,7 +149,10 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
       monthOrders: monthStats._count.id,
       topRestaurants,
       revenueByDay: dailyRevenue,
-    })
+    }
+
+    await cacheSet(cacheKey, payload)
+    res.json(payload)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch global analytics' })
   }
@@ -136,15 +161,25 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
 // ─── GET /analytics/restaurant/:restaurantId — vendor analytics ──
 router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
   const { restaurantId } = req.params
+  const cacheKey = `analytics:restaurant:${restaurantId}`
+  const cached = await cacheGet<any>(cacheKey)
+  if (cached) { res.json(cached); return }
 
   try {
     const now = new Date()
-    const todayStart = startOfDay(now)
-    const weekStart = startOfWeek()
-    const monthStart = startOfMonth()
     const thirtyDaysAgo = daysAgo(30)
 
-    const [totalStats, todayStats, weekStats, monthStats, topItems, recentOrders] = await Promise.all([
+    const [
+      totalStats,
+      todayStats,
+      weekStats,
+      monthStats,
+      topItems,
+      recentOrders,
+      cancelledOrders,
+      totalCustomers,
+      dailyRevenue,
+    ] = await Promise.all([
       prisma.order.aggregate({
         where: { restaurantId, status: { not: 'CANCELLED' } },
         _sum: { totalAmount: true },
@@ -152,21 +187,21 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
         _avg: { totalAmount: true },
       }),
       prisma.order.aggregate({
-        where: { restaurantId, status: { not: 'CANCELLED' }, placedAt: { gte: todayStart } },
+        where: { restaurantId, status: { not: 'CANCELLED' }, placedAt: { gte: startOfDay(now) } },
         _sum: { totalAmount: true },
         _count: { id: true },
       }),
       prisma.order.aggregate({
-        where: { restaurantId, status: { not: 'CANCELLED' }, placedAt: { gte: weekStart } },
+        where: { restaurantId, status: { not: 'CANCELLED' }, placedAt: { gte: startOfWeek() } },
         _sum: { totalAmount: true },
         _count: { id: true },
       }),
       prisma.order.aggregate({
-        where: { restaurantId, status: { not: 'CANCELLED' }, placedAt: { gte: monthStart } },
+        where: { restaurantId, status: { not: 'CANCELLED' }, placedAt: { gte: startOfMonth() } },
         _sum: { totalAmount: true },
         _count: { id: true },
       }),
-      // Top menu items (via order items)
+      // Top menu items by quantity sold
       prisma.orderItem.groupBy({
         by: ['nameSnapshot'],
         where: { order: { restaurantId, status: { not: 'CANCELLED' } } },
@@ -174,11 +209,11 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
         orderBy: { _sum: { quantity: 'desc' } },
         take: 10,
       }),
-      // Recent orders (paginated)
+      // Recent orders (last 100, most recent first)
       prisma.order.findMany({
-        where: { restaurantId, status: { not: 'CANCELLED' } },
+        where: { restaurantId },
         orderBy: { placedAt: 'desc' },
-        take: 50,
+        take: 100,
         select: {
           id: true,
           totalAmount: true,
@@ -190,26 +225,12 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
           customer: { select: { name: true, phone: true } },
         },
       }),
+      prisma.order.count({ where: { restaurantId, status: 'CANCELLED' } }),
+      prisma.customer.count({ where: { restaurantId } }),
+      buildDailyRevenue(restaurantId, thirtyDaysAgo),
     ])
 
-    // Daily revenue for last 30 days
-    const dailyRevenue = await prisma.$queryRaw<{ date: string; revenue: number; orders: number }[]>`
-      SELECT 
-        DATE(placed_at) as date,
-        COALESCE(SUM(total_amount), 0)::float as revenue,
-        COUNT(*)::int as orders
-      FROM "Order"
-      WHERE restaurant_id = ${restaurantId}
-        AND status != 'CANCELLED'
-        AND placed_at >= ${thirtyDaysAgo}
-      GROUP BY DATE(placed_at)
-      ORDER BY date ASC
-    `
-
-    const cancelledOrders = await prisma.order.count({ where: { restaurantId, status: 'CANCELLED' } })
-    const totalCustomers = await prisma.customer.count({ where: { restaurantId } })
-
-    res.json({
+    const payload = {
       totalRevenue: Number(totalStats._sum.totalAmount || 0),
       totalOrders: totalStats._count.id,
       avgOrderValue: Number(totalStats._avg.totalAmount || 0),
@@ -228,17 +249,19 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
       })),
       recentOrders,
       revenueByDay: dailyRevenue,
-    })
+    }
+
+    await cacheSet(cacheKey, payload)
+    res.json(payload)
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch analytics' })
   }
 })
 
-// ─── GET /analytics/export/csv?restaurantId= ─────────────────────
+// ─── GET /analytics/export/csv ────────────────────────────────────
 router.get('/export/csv', requireAuth, async (req: Request, res: Response): Promise<void> => {
   const { restaurantId, from, to } = req.query as Record<string, string>
 
-  // Access control: non-super-admins can only export their own restaurant
   const user = req.user!
   const targetId = user.role === 'SUPER_ADMIN' ? restaurantId : (user.restaurantId || '')
 
@@ -250,13 +273,13 @@ router.get('/export/csv', requireAuth, async (req: Request, res: Response): Prom
   try {
     const where: any = { restaurantId: targetId }
     if (from) where.placedAt = { ...where.placedAt, gte: new Date(from) }
-    if (to) where.placedAt = { ...where.placedAt, lte: new Date(to) }
+    if (to)   where.placedAt = { ...where.placedAt, lte: new Date(to) }
 
     const orders = await prisma.order.findMany({
       where,
       orderBy: { placedAt: 'desc' },
       include: {
-        items: { select: { nameSnapshot: true, quantity: true, subtotal: true, priceSnapshot: true } },
+        items: { select: { nameSnapshot: true, quantity: true, subtotal: true } },
         customer: { select: { name: true, phone: true } },
       },
     })
@@ -277,11 +300,13 @@ router.get('/export/csv', requireAuth, async (req: Request, res: Response): Prom
       ]),
     ]
 
-    const csv = rows.map((r: any[]) => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const csv = rows
+      .map((r: any[]) => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
 
-    res.setHeader('Content-Type', 'text/csv')
-    res.setHeader('Content-Disposition', `attachment; filename="orders-${targetId.slice(0, 8)}-${Date.now()}.csv"`)
-    res.send(csv)
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="orders-${Date.now()}.csv"`)
+    res.send('\uFEFF' + csv) // BOM for Excel UTF-8 compatibility
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to export' })
   }

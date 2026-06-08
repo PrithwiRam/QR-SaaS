@@ -168,6 +168,7 @@ model Customer {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   orders           Order[]
+  claims           RewardClaim[]
 
   @@unique([restaurantId, phone])
   @@index([restaurantId])
@@ -187,6 +188,7 @@ model Offer {
   isActive       Boolean    @default(true)
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
+  claims         RewardClaim[]
 
   @@index([restaurantId])
 }
@@ -220,4 +222,26 @@ model MarketingCampaign {
 
   @@index([restaurantId])
   @@index([restaurantId, createdAt])
+}
+
+model RewardClaim {
+  id           String      @id @default(uuid())
+  restaurantId String
+  customerId   String
+  customer     Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  offerId      String
+  offer        Offer       @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  status       ClaimStatus @default(PENDING)
+  claimCode    String      @unique
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([restaurantId])
+  @@index([customerId])
+}
+
+enum ClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

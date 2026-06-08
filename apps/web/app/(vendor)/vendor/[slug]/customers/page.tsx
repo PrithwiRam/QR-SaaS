@@ -1,6 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
+import { io as connectSocket, Socket } from 'socket.io-client'
 import { api } from '@/lib/api'
 import { useVendorCtx } from '@/app/(vendor)/vendor-context'
 
@@ -10,9 +11,10 @@ export default function CustomersPage() {
   const ctx = useVendorCtx()
   const restaurantId = ctx?.restaurantId ?? null
 
-  const [activeTab, setActiveTab] = useState<'crm' | 'offers'>('crm')
+  const [activeTab, setActiveTab] = useState<'crm' | 'offers' | 'claims'>('crm')
   const [customers, setCustomers] = useState<any[]>([])
   const [offers, setOffers] = useState<any[]>([])
+  const [claims, setClaims] = useState<any[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -35,11 +37,44 @@ export default function CustomersPage() {
   const [adjustPointsMode, setAdjustPointsMode] = useState<'ADD' | 'DEDUCT'>('ADD')
   const [adjustingPoints, setAdjustingPoints] = useState(false)
 
+  const socketRef = useRef<Socket | null>(null)
+
   useEffect(() => {
     if (restaurantId) {
       loadData(restaurantId)
     } else {
       setLoading(false)
+    }
+  }, [restaurantId])
+
+  // Real-time socket sync for CRM/Claims
+  useEffect(() => {
+    if (!restaurantId) return
+    const token = localStorage.getItem('accessToken')
+    if (!token) return
+
+    const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/v1').replace('/v1', '')
+    const socket = connectSocket(apiUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    })
+    socketRef.current = socket
+
+    socket.on('connect', () => {
+      socket.emit('join-restaurant', { restaurantId })
+    })
+
+    socket.on('new_claim', (claim: any) => {
+      setClaims(prev => [claim, ...prev])
+      showMsg(`New claim request received: ${claim.claimCode}`)
+    })
+
+    socket.on('claim_updated', (updated: any) => {
+      setClaims(prev => prev.map(c => c.id === updated.id ? updated : c))
+    })
+
+    return () => {
+      socket.disconnect()
     }
   }, [restaurantId])
 
@@ -52,11 +87,14 @@ export default function CustomersPage() {
     setLoading(true)
     setError('')
     try {
-      const custData = await api.getVendorCustomers(rid, searchQuery)
+      const [custData, offerData, claimData] = await Promise.all([
+        api.getVendorCustomers(rid, searchQuery),
+        api.getVendorOffers(rid),
+        api.getClaims(rid),
+      ])
       setCustomers(Array.isArray(custData) ? custData : [])
-
-      const offerData = await api.getVendorOffers(rid)
       setOffers(Array.isArray(offerData) ? offerData : [])
+      setClaims(Array.isArray(claimData) ? claimData : [])
     } catch (e: any) {
       setError(e.message || 'Failed to load customer/loyalty data.')
     } finally {
@@ -176,6 +214,18 @@ export default function CustomersPage() {
       setError(e.message || 'Failed to adjust customer points')
     } finally {
       setAdjustingPoints(false)
+    }
+  }
+
+  async function handleResolveClaim(claimId: string, status: 'APPROVED' | 'REJECTED') {
+    if (!restaurantId) return
+    if (!confirm(`Are you sure you want to ${status.toLowerCase()} this claim request?`)) return
+    try {
+      const updated = await api.resolveClaim(restaurantId, claimId, status)
+      setClaims(prev => prev.map(c => c.id === claimId ? updated : c))
+      showMsg(`Claim ${updated.claimCode} has been ${status.toLowerCase()} successfully.`)
+    } catch (e: any) {
+      setError(e.message || 'Failed to resolve claim')
     }
   }
 
@@ -319,6 +369,9 @@ export default function CustomersPage() {
         <button className={`tab-btn ${activeTab === 'offers' ? 'active' : ''}`} onClick={() => setActiveTab('offers')}>
           🎁 Manage Promo & Rewards Offers
         </button>
+        <button className={`tab-btn ${activeTab === 'claims' ? 'active' : ''}`} onClick={() => { setActiveTab('claims'); setSearchQuery(''); }}>
+          🎁 Reward Redemption Claims
+        </button>
       </div>
 
       {/* Tab 1: CRM Customer Directory */}
@@ -461,6 +514,126 @@ export default function CustomersPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: Reward Redemption Claims */}
+      {activeTab === 'claims' && (
+        <div>
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search claims by code, customer name, phone or offer..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{ flex: 1, padding: '0.75rem 1rem', background: '#18181B', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', color: '#FFF' }}
+            />
+            <button className="btn btn-secondary" onClick={() => loadData(restaurantId!)}>
+              ↺ Refresh List
+            </button>
+          </div>
+
+          {claims.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">🎁</div>
+              <div className="empty-state-title">No reward claims received</div>
+              <div className="empty-state-desc">
+                When customers redeem points for rewards on their profile page, they will appear here.
+              </div>
+            </div>
+          ) : (
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Claim Code</th>
+                    <th>Customer</th>
+                    <th>Reward Offer</th>
+                    <th>Points Cost</th>
+                    <th>Date Claimed</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {claims
+                    .filter(c => {
+                      const q = searchQuery.toLowerCase()
+                      return (
+                        c.claimCode.toLowerCase().includes(q) ||
+                        c.customer.name.toLowerCase().includes(q) ||
+                        c.customer.phone.includes(q) ||
+                        c.offer.title.toLowerCase().includes(q)
+                      )
+                    })
+                    .map(claim => {
+                      const badgeColor = claim.status === 'APPROVED' ? 'var(--accent-green)' : claim.status === 'REJECTED' ? 'var(--accent-red)' : 'var(--gold-primary)'
+                      const badgeBg = claim.status === 'APPROVED' ? 'rgba(16,185,129,0.1)' : claim.status === 'REJECTED' ? 'rgba(239,68,68,0.1)' : 'rgba(212,175,55,0.1)'
+
+                      return (
+                        <tr key={claim.id}>
+                          <td>
+                            <strong style={{ fontFamily: 'monospace', fontSize: '1.05rem', color: '#D4AF37', letterSpacing: '1px' }}>
+                              {claim.claimCode}
+                            </strong>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 700, color: '#FFF' }}>{claim.customer.name}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{claim.customer.phone}</div>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{claim.offer.title}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{claim.offer.code}</div>
+                          </td>
+                          <td>
+                            <strong style={{ color: '#D4AF37' }}>⭐ {claim.offer.pointsRequired} pts</strong>
+                          </td>
+                          <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                            {new Date(claim.createdAt).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                          </td>
+                          <td>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '0.2rem 0.6rem',
+                              borderRadius: '12px',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: badgeColor,
+                              backgroundColor: badgeBg,
+                              border: `1px solid ${badgeColor}33`,
+                              textTransform: 'uppercase'
+                            }}>
+                              {claim.status}
+                            </span>
+                          </td>
+                          <td>
+                            {claim.status === 'PENDING' ? (
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button
+                                  className="btn btn-sm"
+                                  onClick={() => handleResolveClaim(claim.id, 'APPROVED')}
+                                  style={{ background: 'var(--accent-green)', borderColor: 'var(--accent-green)', color: '#FFF', padding: '0.4rem 0.8rem', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  className="btn btn-danger btn-sm"
+                                  onClick={() => handleResolveClaim(claim.id, 'REJECTED')}
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Resolved</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

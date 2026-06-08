@@ -1,6 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
+import { io as connectSocket, Socket } from 'socket.io-client'
 import { api } from '@/lib/api'
 import { useVendorCtx } from '@/app/(vendor)/vendor-context'
 
@@ -19,10 +20,60 @@ export default function VendorDashboard() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [updatingStockId, setUpdatingStockId] = useState<string | null>(null)
+  const [connected, setConnected] = useState(false)
+
+  const socketRef = useRef<Socket | null>(null)
 
   useEffect(() => {
     if (!restaurantId) return
     loadDashboard(restaurantId)
+  }, [restaurantId])
+
+  // Real-time socket sync for Dashboard
+  useEffect(() => {
+    if (!restaurantId) return
+    const token = localStorage.getItem('accessToken')
+    if (!token) return
+
+    const apiUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/v1').replace('/v1', '')
+    const socket = connectSocket(apiUrl, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    })
+    socketRef.current = socket
+
+    socket.on('connect', () => {
+      setConnected(true)
+      socket.emit('join-restaurant', { restaurantId })
+    })
+
+    socket.on('connect_error', (err) => {
+      console.warn('[Dashboard Socket] connect_error:', err.message)
+      setConnected(false)
+    })
+
+    socket.on('disconnect', () => setConnected(false))
+
+    socket.on('new_order', (order: any) => {
+      // Append new order to orders list immediately
+      setOrders(prev => {
+        // Prevent duplicate append
+        if (prev.some(o => o.id === order.id)) return prev
+        return [order, ...prev]
+      })
+    })
+
+    socket.on('order_updated', (updated: any) => {
+      setOrders(prev => prev.map(o => o.id === updated.id ? updated : o))
+    })
+
+    socket.on('item_updated', (updatedItem: any) => {
+      setAllItems(prev => prev.map(x => x.id === updatedItem.id ? { ...x, ...updatedItem } : x))
+    })
+
+    return () => {
+      socket.disconnect()
+    }
   }, [restaurantId])
 
   async function loadDashboard(rid: string) {
@@ -113,8 +164,13 @@ export default function VendorDashboard() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Welcome! 👋</h1>
-          <p>Overview for <strong>{ctx?.restaurantName || slug}</strong></p>
+          <div className="flex items-center gap-3">
+            <h1 style={{ margin: 0 }}>Welcome! 👋</h1>
+            <span className={`badge ${connected ? 'badge-active' : 'badge-inactive'}`} style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', textTransform: 'none' }}>
+              {connected ? '● Live Sockets' : '○ Offline'}
+            </span>
+          </div>
+          <p style={{ marginTop: '0.25rem' }}>Overview for <strong>{ctx?.restaurantName || slug}</strong></p>
         </div>
         <a href={`/menu/${slug}`} target="_blank" className="btn btn-secondary">
           🔗 View Live Menu

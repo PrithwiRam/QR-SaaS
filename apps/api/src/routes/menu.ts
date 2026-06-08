@@ -6,12 +6,20 @@ import { getIo } from '../socket/orderEvents'
 
 const router = Router({ mergeParams: true })
 
-// Helper: broadcast a full menu refresh signal to all customers in the room
-function broadcastMenuChange(restaurantId: string, eventType: string, payload: any) {
+import { redis } from '../lib/redis'
+
+// Helper: broadcast a full menu refresh signal to all customers in the room and invalidate cache
+async function broadcastMenuChange(restaurantId: string, eventType: string, payload: any) {
   try {
     const io = getIo()
     io.to(`restaurant:${restaurantId}`).emit(eventType, payload)
     io.to(`restaurant:${restaurantId}`).emit('menu_changed', { restaurantId, type: eventType })
+
+    // Clear public menu cache
+    const r = await prisma.restaurant.findUnique({ where: { id: restaurantId }, select: { slug: true } })
+    if (r) {
+      await redis.del(`menu:slug:${r.slug}`)
+    }
   } catch (e) {
     console.warn('[Socket.io] broadcast failed:', e)
   }
@@ -177,6 +185,86 @@ router.delete('/items/:id', requireAuth, requireTenant, async (req: Request, res
     res.json({ message: 'Item deleted', softDeleted: false })
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to delete item' })
+  }
+})
+
+// ─── CLAIMS MANAGEMENT ──────────────────────────────────────────
+
+router.get('/claims', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId } = req.params
+  try {
+    const claims = await prisma.rewardClaim.findMany({
+      where: { restaurantId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        offer: true,
+        customer: { select: { name: true, phone: true } },
+      },
+    })
+    res.json(claims)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to list claims' })
+  }
+})
+
+router.patch('/claims/:id', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId, id } = req.params
+  const schema = z.object({
+    status: z.enum(['PENDING', 'APPROVED', 'REJECTED']),
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    return
+  }
+
+  const { status } = parsed.data
+
+  try {
+    const claim = await prisma.rewardClaim.findFirst({
+      where: { id, restaurantId },
+      include: { offer: true },
+    })
+
+    if (!claim) {
+      res.status(404).json({ error: 'Claim not found' })
+      return
+    }
+
+    if (claim.status !== 'PENDING') {
+      res.status(400).json({ error: 'Claim has already been resolved' })
+      return
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // If rejected, refund points to the customer
+      if (status === 'REJECTED') {
+        await tx.customer.update({
+          where: { id: claim.customerId },
+          data: { loyaltyPoints: { increment: claim.offer.pointsRequired } },
+        })
+      }
+
+      return tx.rewardClaim.update({
+        where: { id },
+        data: { status },
+        include: {
+          offer: true,
+          customer: { select: { name: true, phone: true } },
+        },
+      })
+    })
+
+    // Emit live socket update
+    try {
+      const io = getIo()
+      io.to(`restaurant:${restaurantId}`).emit('claim_updated', updated)
+    } catch {}
+
+    res.json(updated)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update claim' })
   }
 })
 
