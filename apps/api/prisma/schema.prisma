@@ -28,6 +28,7 @@ model User {
 enum UserRole {
   SUPER_ADMIN
   RESTAURANT_ADMIN
+  KITCHEN_STAFF
 }
 
 // ─── Restaurants ────────────────────────────────────────────────
@@ -52,6 +53,9 @@ model Restaurant {
   offers        Offer[]
   loyaltyConfig LoyaltyConfig?
   campaigns     MarketingCampaign[]
+  adRequests    AdCampaignRequest[]
+  posterRequests PosterDesignRequest[]
+  leads         Lead[]
 }
 
 // ─── Menu categories ────────────────────────────────────────────
@@ -245,4 +249,44 @@ enum ClaimStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+model AdCampaignRequest {
+  id           String      @id @default(uuid())
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  platform     String      // "META" or "GOOGLE"
+  budget       Decimal     @db.Decimal(10, 2)
+  status       String      @default("PENDING") // "PENDING", "APPROVED", "COMPLETED"
+  notes        String?
+  createdAt    DateTime    @default(now())
+
+  @@index([restaurantId])
+}
+
+model PosterDesignRequest {
+  id           String      @id @default(uuid())
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  concept      String
+  size         String      // "SQUARE", "BANNER", "STORY"
+  status       String      @default("PENDING") // "PENDING", "IN_PROGRESS", "DELIVERED"
+  imageUrl     String?
+  createdAt    DateTime    @default(now())
+
+  @@index([restaurantId])
+}
+
+model Lead {
+  id           String      @id @default(uuid())
+  restaurantId String
+  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  name         String
+  email        String
+  phone        String
+  source       String      // "META Ads", "GOOGLE Ads", "QR Menu"
+  status       String      @default("NEW") // "NEW", "CONTACTED", "CONVERTED"
+  createdAt    DateTime    @default(now())
+
+  @@index([restaurantId])
 }

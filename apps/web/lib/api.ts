@@ -70,10 +70,32 @@ export const api = {
   getGlobalAnalytics: () => request<any>('/analytics/global'),
   getRestaurantAnalytics: (restaurantId: string) => request<any>(`/analytics/restaurant/${restaurantId}`),
   exportOrders: (restaurantId: string, from?: string, to?: string) => {
-    const params = new URLSearchParams({ restaurantId })
+    const params = new URLSearchParams()
+    if (restaurantId) params.set('restaurantId', restaurantId)
     if (from) params.set('from', from)
     if (to) params.set('to', to)
+    const token = getToken()
+    if (token) params.set('token', token)
     return `${BASE}/analytics/export/csv?${params}`
+  },
+  exportCustomers: (restaurantId?: string) => {
+    const params = new URLSearchParams()
+    if (restaurantId) params.set('restaurantId', restaurantId)
+    const token = getToken()
+    if (token) params.set('token', token)
+    return `${BASE}/analytics/export/customers/csv?${params}`
+  },
+  exportRestaurants: () => {
+    const params = new URLSearchParams()
+    const token = getToken()
+    if (token) params.set('token', token)
+    return `${BASE}/analytics/export/restaurants/csv?${params}`
+  },
+  exportPlatformAnalytics: () => {
+    const params = new URLSearchParams()
+    const token = getToken()
+    if (token) params.set('token', token)
+    return `${BASE}/analytics/export/platform/csv?${params}`
   },
 
   // Categories
@@ -158,4 +180,22 @@ export const api = {
     request<any>(`/restaurants/${rid}/marketing/campaigns/${campaignId}/send`, { method: 'POST' }),
   deleteCampaign: (rid: string, campaignId: string) =>
     request<any>(`/restaurants/${rid}/marketing/campaigns/${campaignId}`, { method: 'DELETE' }),
+
+  // Marketing (Admin)
+  getMarketingStats: () => request<any>('/admin/marketing/stats'),
+  getAdminAds: () => request<any>('/admin/marketing/ads'),
+  createAdminAd: (data: any) => request<any>('/admin/marketing/ads', { method: 'POST', body: JSON.stringify(data) }),
+  updateAdminAd: (id: string, data: any) => request<any>(`/admin/marketing/ads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getAdminPosters: () => request<any>('/admin/marketing/posters'),
+  createAdminPoster: (data: any) => request<any>('/admin/marketing/posters', { method: 'POST', body: JSON.stringify(data) }),
+  updateAdminPoster: (id: string, data: any) => request<any>(`/admin/marketing/posters/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  getAdminLeads: () => request<any>('/admin/marketing/leads'),
+  createAdminLead: (data: any) => request<any>('/admin/marketing/leads', { method: 'POST', body: JSON.stringify(data) }),
+  updateAdminLead: (id: string, data: any) => request<any>(`/admin/marketing/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Staff Management (Vendor/Admin)
+  getStaff: (rid: string) => request<any>(`/restaurants/${rid}/staff`),
+  createStaff: (rid: string, data: any) => request<any>(`/restaurants/${rid}/staff`, { method: 'POST', body: JSON.stringify(data) }),
+  updateStaff: (rid: string, id: string, data: any) => request<any>(`/restaurants/${rid}/staff/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteStaff: (rid: string, id: string) => request<any>(`/restaurants/${rid}/staff/${id}`, { method: 'DELETE' }),
 }

@@ -28,11 +28,26 @@ const MESSAGE_TEMPLATES = [
   { label: '⭐ Thank You', text: 'Hi {name}! Thank you for being a valued customer. Your support means the world to us! 🙏' },
 ]
 
+import { useAuth } from '@/hooks/useAuth'
+
 export default function MarketingPage() {
+  const { user } = useAuth()
   const params = useParams()
   const slug = params?.slug as string
   const ctx = useVendorCtx()
   const restaurantId = ctx?.restaurantId
+
+  if (user?.role !== 'SUPER_ADMIN') {
+    return (
+      <div className="card" style={{ padding: '3rem', textAlign: 'center', margin: '2rem auto', maxWidth: '500px' }}>
+        <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>🚫</div>
+        <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Access Denied</h1>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+          Marketing campaigns and tracking have been moved to the Admin Dashboard. Only Platform Administrators have access.
+        </p>
+      </div>
+    )
+  }
 
   const [segments, setSegments] = useState<any>({})
   const [campaigns, setCampaigns] = useState<any[]>([])

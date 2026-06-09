@@ -210,4 +210,130 @@ router.delete('/:id', requireAuth, requireSuperAdmin, async (req: Request, res: 
   }
 })
 
+// ─── GET /restaurants/:restaurantId/staff ─────────────────────────
+router.get('/:restaurantId/staff', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId } = req.params
+  const user = req.user!
+
+  if (user.role !== 'SUPER_ADMIN' && user.restaurantId !== restaurantId) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  try {
+    const staff = await prisma.user.findMany({
+      where: { restaurantId, role: 'KITCHEN_STAFF' },
+      select: { id: true, email: true, isActive: true, createdAt: true }
+    })
+    res.json(staff)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to list staff' })
+  }
+})
+
+// ─── POST /restaurants/:restaurantId/staff ────────────────────────
+router.post('/:restaurantId/staff', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId } = req.params
+  const user = req.user!
+
+  if (user.role !== 'SUPER_ADMIN' && user.restaurantId !== restaurantId) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  const schema = z.object({
+    email: z.string().email(),
+    password: z.string().min(6)
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    return
+  }
+
+  try {
+    const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } })
+    if (existing) {
+      res.status(409).json({ error: 'A user with this email already exists' })
+      return
+    }
+
+    const passwordHash = await bcrypt.hash(parsed.data.password, 12)
+    const newStaff = await prisma.user.create({
+      data: {
+        email: parsed.data.email,
+        passwordHash,
+        role: 'KITCHEN_STAFF',
+        restaurantId
+      },
+      select: { id: true, email: true, isActive: true, createdAt: true }
+    })
+    res.status(201).json(newStaff)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to create staff' })
+  }
+})
+
+// ─── PATCH /restaurants/:restaurantId/staff/:staffId ──────────────
+router.patch('/:restaurantId/staff/:staffId', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId, staffId } = req.params
+  const user = req.user!
+
+  if (user.role !== 'SUPER_ADMIN' && user.restaurantId !== restaurantId) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  const schema = z.object({
+    isActive: z.boolean().optional(),
+    password: z.string().min(6).optional()
+  })
+
+  const parsed = schema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() })
+    return
+  }
+
+  try {
+    const data: any = {}
+    if (parsed.data.isActive !== undefined) {
+      data.isActive = parsed.data.isActive
+    }
+    if (parsed.data.password) {
+      data.passwordHash = await bcrypt.hash(parsed.data.password, 12)
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: staffId, restaurantId },
+      data,
+      select: { id: true, email: true, isActive: true, createdAt: true }
+    })
+    res.json(updated)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update staff' })
+  }
+})
+
+// ─── DELETE /restaurants/:restaurantId/staff/:staffId ─────────────
+router.delete('/:restaurantId/staff/:staffId', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId, staffId } = req.params
+  const user = req.user!
+
+  if (user.role !== 'SUPER_ADMIN' && user.restaurantId !== restaurantId) {
+    res.status(403).json({ error: 'Forbidden' })
+    return
+  }
+
+  try {
+    await prisma.user.delete({
+      where: { id: staffId, restaurantId }
+    })
+    res.json({ message: 'Staff member deleted' })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to delete staff' })
+  }
+})
+
 export default router

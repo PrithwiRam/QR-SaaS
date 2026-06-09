@@ -23,13 +23,18 @@ export const requireAuth = async (
   res: Response,
   next: NextFunction
 ): Promise<void> => {
+  let token = ''
   const header = req.headers.authorization
-  if (!header?.startsWith('Bearer ')) {
+  if (header?.startsWith('Bearer ')) {
+    token = header.slice(7)
+  } else if (req.query.token && typeof req.query.token === 'string') {
+    token = req.query.token
+  }
+
+  if (!token) {
     res.status(401).json({ error: 'Missing token' })
     return
   }
-
-  const token = header.slice(7)
   try {
     // Check revocation list (populated on logout)
     try {

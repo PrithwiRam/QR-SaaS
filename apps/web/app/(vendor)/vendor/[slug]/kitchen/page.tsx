@@ -178,6 +178,25 @@ export default function KitchenPage() {
     return () => { socket.disconnect() }
   }, [restaurantId])
 
+  // Repeat sound notification every 10s if any PENDING order is present
+  useEffect(() => {
+    const settings = getLocalNotificationSettings()
+    if (!settings.soundEnabled || !settings.repeatAlerts) return
+
+    const pendingOrdersCount = orders.filter(o => o.status === 'PENDING').length
+    if (pendingOrdersCount === 0) return
+
+    const interval = setInterval(() => {
+      const currentSettings = getLocalNotificationSettings()
+      const hasPending = orders.some(o => o.status === 'PENDING')
+      if (currentSettings.soundEnabled && currentSettings.repeatAlerts && hasPending) {
+        playChimeSound(currentSettings.volume)
+      }
+    }, 10000)
+
+    return () => clearInterval(interval)
+  }, [orders])
+
   async function loadOrders(rid: string) {
     try {
       const data = await api.getOrders(rid, { status: 'PENDING,PREPARING,READY' })

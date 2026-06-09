@@ -130,28 +130,43 @@ router.post('/campaigns/:campaignId/send', requireAuth, requireTenant, async (re
       select: { id: true, name: true, phone: true },
     })
 
-    // ── WhatsApp Business API placeholder ──────────────────────────
-    // Replace this block with actual Meta Graph API calls when credentials are ready:
-    //
-    // const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
-    // const PHONE_ID = process.env.WHATSAPP_PHONE_ID
-    // for (const recipient of recipients) {
-    //   await axios.post(
-    //     `https://graph.facebook.com/v18.0/${PHONE_ID}/messages`,
-    //     {
-    //       messaging_product: 'whatsapp',
-    //       to: recipient.phone,
-    //       type: 'text',
-    //       text: { body: campaign.message.replace('{name}', recipient.name) },
-    //     },
-    //     { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
-    //   )
-    // }
+    const WHATSAPP_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN
+    const PHONE_ID = process.env.WHATSAPP_PHONE_ID
 
-    console.log(`[Marketing] Campaign "${campaign.name}" would send to ${recipients.length} recipients:`)
-    recipients.slice(0, 5).forEach((r: any) => {
-      console.log(`  → ${r.name} (${r.phone}): ${campaign.message.slice(0, 50)}...`)
-    })
+    if (WHATSAPP_TOKEN && PHONE_ID) {
+      console.log(`[WhatsApp API] Sending WhatsApp messages using Meta API...`)
+      for (const recipient of recipients) {
+        try {
+          const resMeta = await fetch(
+            `https://graph.facebook.com/v18.0/${PHONE_ID}/messages`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${WHATSAPP_TOKEN}`
+              },
+              body: JSON.stringify({
+                messaging_product: 'whatsapp',
+                to: recipient.phone,
+                type: 'text',
+                text: { body: campaign.message.replace('{name}', recipient.name) }
+              })
+            }
+          )
+          if (!resMeta.ok) {
+            const errBody = await resMeta.json().catch(() => ({}))
+            console.error(`[WhatsApp API] Meta request failed for ${recipient.phone}:`, errBody)
+          }
+        } catch (fetchErr) {
+          console.error(`[WhatsApp API] Request error for ${recipient.phone}:`, fetchErr)
+        }
+      }
+    } else {
+      console.warn(`[WhatsApp API] Config missing. Logging marketing messages to server console:`)
+      recipients.forEach((r: any) => {
+        console.log(`  → ${r.name} (${r.phone}): ${campaign.message.replace('{name}', r.name)}`)
+      })
+    }
 
     const updated = await prisma.marketingCampaign.update({
       where: { id: campaignId },

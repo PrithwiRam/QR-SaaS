@@ -101,8 +101,20 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
     )
   }
 
+  useEffect(() => {
+    if (user?.role === 'KITCHEN_STAFF' && pathname !== `/vendor/${slug}/kitchen`) {
+      router.replace(`/vendor/${slug}/kitchen`)
+    }
+  }, [user, pathname, slug, router])
+
+  if (user?.role === 'KITCHEN_STAFF' && pathname !== `/vendor/${slug}/kitchen`) {
+    return null
+  }
+
   const base = `/vendor/${slug}`
-  const navLinks = [
+  const navLinks = user?.role === 'KITCHEN_STAFF' ? [
+    { href: `${base}/kitchen`, label: '🍳 Kitchen', exact: false },
+  ] : [
     { href: base, label: '📊 Dashboard', exact: true },
     { href: `${base}/revenue`, label: '💰 Revenue', exact: false },
     { href: `${base}/menu`, label: '🍽️ Menu', exact: false },
@@ -110,7 +122,6 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
     { href: `${base}/tables`, label: '📋 Tables & QR', exact: false },
     { href: `${base}/customers`, label: '👥 Customers & Loyalty', exact: false },
     { href: `${base}/loyalty`, label: '⭐ Loyalty Settings', exact: false },
-    { href: `${base}/marketing`, label: '📣 Marketing', exact: false },
     { href: `${base}/kitchen`, label: '🍳 Kitchen', exact: false },
     { href: `${base}/settings`, label: '⚙️ Settings', exact: false },
   ]

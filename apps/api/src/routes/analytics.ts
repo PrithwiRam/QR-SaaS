@@ -82,6 +82,9 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
       totalCustomers,
       topRestaurantsRaw,
       dailyRevenue,
+      adsSum,
+      postersDeliveredCount,
+      campaignsSentCount,
     ] = await Promise.all([
       prisma.order.aggregate({
         where: { status: { not: 'CANCELLED' } },
@@ -121,6 +124,12 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
         },
       }),
       buildDailyRevenue(null, thirtyDaysAgo),
+      prisma.adCampaignRequest.aggregate({
+        where: { status: { in: ['APPROVED', 'COMPLETED'] } },
+        _sum: { budget: true }
+      }),
+      prisma.posterDesignRequest.count({ where: { status: 'DELIVERED' } }),
+      prisma.marketingCampaign.count({ where: { status: 'SENT' } }),
     ])
 
     const topRestaurants = topRestaurantsRaw
@@ -134,6 +143,11 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
       }))
       .sort((a: any, b: any) => b.revenue - a.revenue)
       .slice(0, 10)
+
+    const adsRevenue = Number(adsSum._sum.budget || 0) * 0.10
+    const postersRevenue = postersDeliveredCount * 1500
+    const campaignsRevenue = campaignsSentCount * 49
+    const marketingRevenue = adsRevenue + postersRevenue + campaignsRevenue
 
     const payload = {
       totalRevenue: Number(totalStats._sum.totalAmount || 0),
@@ -149,6 +163,7 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
       monthOrders: monthStats._count.id,
       topRestaurants,
       revenueByDay: dailyRevenue,
+      marketingRevenue,
     }
 
     await cacheSet(cacheKey, payload)
@@ -309,6 +324,134 @@ router.get('/export/csv', requireAuth, async (req: Request, res: Response): Prom
     res.send('\uFEFF' + csv) // BOM for Excel UTF-8 compatibility
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to export' })
+  }
+})
+
+// ─── GET /analytics/export/customers/csv ──────────────────────────
+router.get('/export/customers/csv', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const { restaurantId } = req.query as Record<string, string>
+  const user = req.user!
+  const targetId = user.role === 'SUPER_ADMIN' ? restaurantId : (user.restaurantId || '')
+
+  try {
+    const where = targetId ? { restaurantId: targetId } : {}
+    const customers = await prisma.customer.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: { restaurant: { select: { name: true } } }
+    })
+
+    const rows = [
+      ['Customer ID', 'Restaurant Name', 'Name', 'Phone', 'Loyalty Points', 'Visit Count', 'Marketing Consent', 'Created At'],
+      ...customers.map((c: any) => [
+        c.id,
+        c.restaurant?.name || '',
+        c.name,
+        c.phone,
+        c.loyaltyPoints,
+        c.visitCount,
+        c.consentMarketing ? 'Yes' : 'No',
+        new Date(c.createdAt).toLocaleString('en-IN')
+      ])
+    ]
+
+    const csv = rows
+      .map((r: any[]) => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="customers-${Date.now()}.csv"`)
+    res.send('\uFEFF' + csv)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to export customers' })
+  }
+})
+
+// ─── GET /analytics/export/restaurants/csv ────────────────────────
+router.get('/export/restaurants/csv', requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const restaurants = await prisma.restaurant.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: {
+            categories: true,
+            menuItems: true,
+            tables: true,
+            orders: true,
+            customers: true,
+          }
+        }
+      }
+    })
+
+    const rows = [
+      ['Restaurant ID', 'Name', 'Slug', 'Address', 'Phone', 'Active Status', 'Categories', 'Menu Items', 'Tables', 'Orders', 'Customers', 'Created At'],
+      ...restaurants.map((r: any) => [
+        r.id,
+        r.name,
+        r.slug,
+        r.address || '',
+        r.phone || '',
+        r.isActive ? 'Active' : 'Inactive',
+        r._count.categories,
+        r._count.menuItems,
+        r._count.tables,
+        r._count.orders,
+        r._count.customers,
+        new Date(r.createdAt).toLocaleString('en-IN')
+      ])
+    ]
+
+    const csv = rows
+      .map((r: any[]) => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="restaurants-${Date.now()}.csv"`)
+    res.send('\uFEFF' + csv)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to export restaurants' })
+  }
+})
+
+// ─── GET /analytics/export/platform/csv ───────────────────────────
+router.get('/export/platform/csv', requireAuth, requireSuperAdmin, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const [totalRestaurants, activeRestaurants, totalOrders, totalCustomers, totalRevenueSum] = await Promise.all([
+      prisma.restaurant.count(),
+      prisma.restaurant.count({ where: { isActive: true } }),
+      prisma.order.count(),
+      prisma.customer.count(),
+      prisma.order.aggregate({
+        where: { status: { not: 'CANCELLED' } },
+        _sum: { totalAmount: true }
+      })
+    ])
+
+    const totalRevenue = Number(totalRevenueSum._sum.totalAmount || 0)
+    const totalCampaigns = await prisma.marketingCampaign.count({ where: { status: 'SENT' } })
+    const marketingRevenue = totalCampaigns * 49.00
+
+    const rows = [
+      ['KPI Metric', 'Value'],
+      ['Total Restaurants', totalRestaurants],
+      ['Active Restaurants', activeRestaurants],
+      ['Total Orders', totalOrders],
+      ['Total Customers', totalCustomers],
+      ['Platform Revenue', `₹${totalRevenue.toFixed(2)}`],
+      ['Marketing Revenue', `₹${marketingRevenue.toFixed(2)}`],
+    ]
+
+    const csv = rows
+      .map((r: any[]) => r.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="platform-analytics-${Date.now()}.csv"`)
+    res.send('\uFEFF' + csv)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to export platform analytics' })
   }
 })
 

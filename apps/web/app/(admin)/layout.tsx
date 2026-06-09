@@ -23,9 +23,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   if (!user || user.role !== 'SUPER_ADMIN') return null
 
   const navLinks = [
-    { href: '/admin', label: '🏠 Dashboard', exact: true },
-    { href: '/admin/vendors', label: '👤 Vendors', exact: false },
-    { href: '/admin/billing', label: '💰 Billing & Revenue', exact: false },
+    { href: '/admin', label: '🏢 Restaurants', exact: true },
+    { href: '/admin/vendors', label: '👥 Vendors', exact: false },
+    { href: '/admin/marketing', label: '📣 Marketing', exact: false },
+    { href: '/admin/analytics', label: '📊 Platform Analytics', exact: false },
+    { href: '/admin/billing', label: '💰 Platform Revenue', exact: false },
+    { href: '/admin/settings', label: '⚙️ Platform Settings', exact: false },
   ]
 
   return (

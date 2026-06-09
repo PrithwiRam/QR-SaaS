@@ -20,6 +20,7 @@ import customerRoutes from './routes/customers'
 import vendorRoutes from './routes/vendors'
 import analyticsRoutes from './routes/analytics'
 import marketingRoutes from './routes/marketing'
+import adminMarketingRoutes from './routes/adminMarketing'
 import { lastGeneratedQrUrl } from './services/qrService'
 
 const app = express()
@@ -129,6 +130,7 @@ app.use(`${v1}/orders`, orderRoutes)
 app.use(`${v1}/menu`, publicRoutes)
 app.use(`${v1}/vendors`, vendorRoutes)
 app.use(`${v1}/analytics`, analyticsRoutes)
+app.use(`${v1}/admin/marketing`, adminMarketingRoutes)
 
 /* =========================
    HEALTH
