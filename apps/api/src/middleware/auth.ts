@@ -4,7 +4,7 @@ import { redis } from '../lib/redis'
 
 export interface AuthPayload {
   userId: string
-  role: 'SUPER_ADMIN' | 'RESTAURANT_ADMIN'
+  role: 'SUPER_ADMIN' | 'RESTAURANT_ADMIN' | 'KITCHEN_STAFF'
   restaurantId: string | null
 }
 

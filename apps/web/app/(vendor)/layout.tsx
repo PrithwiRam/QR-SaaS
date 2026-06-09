@@ -50,6 +50,12 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
     resolveRestaurant()
   }, [isAuthenticated, slug])
 
+  useEffect(() => {
+    if (user?.role === 'KITCHEN_STAFF' && pathname !== `/vendor/${slug}/kitchen`) {
+      router.replace(`/vendor/${slug}/kitchen`)
+    }
+  }, [user, pathname, slug, router])
+
   if (authLoading || !lookupDone) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -100,12 +106,6 @@ export default function VendorLayout({ children }: { children: React.ReactNode }
       </div>
     )
   }
-
-  useEffect(() => {
-    if (user?.role === 'KITCHEN_STAFF' && pathname !== `/vendor/${slug}/kitchen`) {
-      router.replace(`/vendor/${slug}/kitchen`)
-    }
-  }, [user, pathname, slug, router])
 
   if (user?.role === 'KITCHEN_STAFF' && pathname !== `/vendor/${slug}/kitchen`) {
     return null

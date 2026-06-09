@@ -175,6 +175,10 @@ router.get('/global', requireAuth, requireSuperAdmin, async (_req: Request, res:
 
 // ─── GET /analytics/restaurant/:restaurantId — vendor analytics ──
 router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
+  if (req.user?.role === 'KITCHEN_STAFF') {
+    res.status(403).json({ error: 'Forbidden: Kitchen staff cannot access analytics' })
+    return
+  }
   const { restaurantId } = req.params
   const cacheKey = `analytics:restaurant:${restaurantId}`
   const cached = await cacheGet<any>(cacheKey)
@@ -275,18 +279,24 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
 
 // ─── GET /analytics/export/csv ────────────────────────────────────
 router.get('/export/csv', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (req.user?.role === 'KITCHEN_STAFF') {
+    res.status(403).json({ error: 'Forbidden: Kitchen staff cannot access analytics' })
+    return
+  }
   const { restaurantId, from, to } = req.query as Record<string, string>
 
   const user = req.user!
-  const targetId = user.role === 'SUPER_ADMIN' ? restaurantId : (user.restaurantId || '')
+  const isSuperAdmin = user.role === 'SUPER_ADMIN'
+  const targetId = isSuperAdmin ? restaurantId : (user.restaurantId || '')
 
-  if (!targetId) {
+  if (!isSuperAdmin && !targetId) {
     res.status(400).json({ error: 'Missing restaurantId' })
     return
   }
 
   try {
-    const where: any = { restaurantId: targetId }
+    const where: any = {}
+    if (targetId) where.restaurantId = targetId
     if (from) where.placedAt = { ...where.placedAt, gte: new Date(from) }
     if (to)   where.placedAt = { ...where.placedAt, lte: new Date(to) }
 
@@ -329,6 +339,10 @@ router.get('/export/csv', requireAuth, async (req: Request, res: Response): Prom
 
 // ─── GET /analytics/export/customers/csv ──────────────────────────
 router.get('/export/customers/csv', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (req.user?.role === 'KITCHEN_STAFF') {
+    res.status(403).json({ error: 'Forbidden: Kitchen staff cannot access analytics' })
+    return
+  }
   const { restaurantId } = req.query as Record<string, string>
   const user = req.user!
   const targetId = user.role === 'SUPER_ADMIN' ? restaurantId : (user.restaurantId || '')
