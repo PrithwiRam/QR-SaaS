@@ -4,8 +4,9 @@ import { useParams } from 'next/navigation'
 import { io as connectSocket, Socket } from 'socket.io-client'
 import { api } from '@/lib/api'
 import { useVendorCtx } from '@/app/(vendor)/vendor-context'
+import { getNotificationSettings as getLocalNotificationSettings, playChimeSound } from '@/lib/notifications'
 
-type OrderStatus = 'PENDING' | 'PREPARING' | 'SERVED' | 'CANCELLED'
+type OrderStatus = 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'CANCELLED'
 
 interface OrderItem {
   id: string
@@ -27,61 +28,24 @@ interface Order {
 
 const STATUS_NEXT: Record<OrderStatus, OrderStatus | null> = {
   PENDING: 'PREPARING',
-  PREPARING: 'SERVED',
+  PREPARING: 'READY',
+  READY: 'SERVED',
   SERVED: null,
   CANCELLED: null,
 }
 
 const STATUS_BTN_LABEL: Record<OrderStatus, string> = {
   PENDING: '▶ Start Preparing',
-  PREPARING: '✓ Mark Served',
+  PREPARING: '✓ Mark Ready',
+  READY: '✓ Mark Served',
   SERVED: 'Served',
   CANCELLED: 'Cancelled',
 }
 
-function getLocalNotificationSettings() {
-  if (typeof window === 'undefined') return { soundEnabled: true, volume: 0.8, repeatAlerts: true, browserNotificationsEnabled: false }
-  try {
-    const raw = localStorage.getItem('vendor_notification_settings')
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return { soundEnabled: true, volume: 0.8, repeatAlerts: true, browserNotificationsEnabled: false }
-}
-
 function playNotificationSound() {
-  try {
-    const settings = getLocalNotificationSettings()
-    if (!settings.soundEnabled) return
-
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
-    const now = ctx.currentTime
-    const vol = settings.volume ?? 0.8
-
-    // First chime (D5)
-    const osc1 = ctx.createOscillator()
-    const gain1 = ctx.createGain()
-    osc1.type = 'sine'
-    osc1.frequency.setValueAtTime(587.33, now) // D5
-    gain1.gain.setValueAtTime(0.35 * vol, now)
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
-    osc1.connect(gain1)
-    gain1.connect(ctx.destination)
-    osc1.start(now)
-    osc1.stop(now + 0.5)
-
-    // Second chime (A5)
-    const osc2 = ctx.createOscillator()
-    const gain2 = ctx.createGain()
-    osc2.type = 'sine'
-    osc2.frequency.setValueAtTime(880.00, now + 0.12) // A5
-    gain2.gain.setValueAtTime(0.35 * vol, now + 0.12)
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7)
-    osc2.connect(gain2)
-    gain2.connect(ctx.destination)
-    osc2.start(now + 0.12)
-    osc2.stop(now + 0.7)
-  } catch (err) {
-    console.warn("Failed to play notification audio chime:", err)
+  const settings = getLocalNotificationSettings()
+  if (settings.soundEnabled) {
+    playChimeSound(settings.volume)
   }
 }
 
@@ -216,7 +180,7 @@ export default function KitchenPage() {
 
   async function loadOrders(rid: string) {
     try {
-      const data = await api.getOrders(rid, { status: 'PENDING,PREPARING' })
+      const data = await api.getOrders(rid, { status: 'PENDING,PREPARING,READY' })
       setOrders(Array.isArray(data) ? data : [])
     } catch (e: any) {
       setError(e.message || 'Failed to load orders')
@@ -272,11 +236,12 @@ export default function KitchenPage() {
   }
 
   const displayOrders = filter === 'live'
-    ? orders.filter(o => o.status === 'PENDING' || o.status === 'PREPARING')
+    ? orders.filter(o => o.status === 'PENDING' || o.status === 'PREPARING' || o.status === 'READY')
     : orders
 
   const pendingCount = orders.filter(o => o.status === 'PENDING').length
   const preparingCount = orders.filter(o => o.status === 'PREPARING').length
+  const readyCount = orders.filter(o => o.status === 'READY').length
 
   const filteredDishes = allItems.filter(item => {
     const q = stockSearch.toLowerCase()
@@ -368,7 +333,7 @@ export default function KitchenPage() {
               {connected ? '● Live' : '○ Offline'}
             </span>
             <span className="text-sm text-muted">
-              {pendingCount} new · {preparingCount} cooking
+              {pendingCount} new · {preparingCount} cooking · {readyCount} ready
             </span>
           </div>
         </div>

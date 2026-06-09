@@ -91,7 +91,7 @@ export function initSocket(httpServer: import('http').Server, redisConnected: bo
     socket.on('update_status', async ({ orderId, status }) => {
       if (!restaurantId) return
 
-      const validStatuses = ['PENDING', 'PREPARING', 'SERVED', 'CANCELLED']
+      const validStatuses = ['PENDING', 'PREPARING', 'READY', 'SERVED', 'CANCELLED']
       if (!validStatuses.includes(status)) return
 
       const order = await prisma.order.findFirst({

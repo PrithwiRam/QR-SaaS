@@ -116,7 +116,7 @@ router.delete('/:id', requireAuth, requireTenant, async (req: Request, res: Resp
     const activeOrders = await prisma.order.count({
       where: {
         tableId: id,
-        status: { in: ['PENDING', 'PREPARING'] },
+        status: { in: ['PENDING', 'PREPARING', 'READY'] },
       },
     })
     if (activeOrders > 0) {

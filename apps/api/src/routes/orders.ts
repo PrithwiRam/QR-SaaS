@@ -191,7 +191,7 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
 
   if (status) {
     const statuses = status.split(',').filter((s) =>
-      ['PENDING', 'PREPARING', 'SERVED', 'CANCELLED'].includes(s)
+      ['PENDING', 'PREPARING', 'READY', 'SERVED', 'CANCELLED'].includes(s)
     )
     if (statuses.length === 1) where.status = statuses[0]
     else if (statuses.length > 1) where.status = { in: statuses }
@@ -225,7 +225,7 @@ router.get('/restaurant/:restaurantId', requireAuth, requireTenant, async (req: 
 router.patch('/restaurant/:restaurantId/:id/status', requireAuth, requireTenant, async (req: Request, res: Response): Promise<void> => {
   const { restaurantId, id } = req.params
   const schema = z.object({
-    status: z.enum(['PENDING', 'PREPARING', 'SERVED', 'CANCELLED']).optional(),
+    status: z.enum(['PENDING', 'PREPARING', 'READY', 'SERVED', 'CANCELLED']).optional(),
     isPaid: z.boolean().optional(),
   }).refine(data => data.status !== undefined || data.isPaid !== undefined, {
     message: 'Either status or isPaid must be provided',

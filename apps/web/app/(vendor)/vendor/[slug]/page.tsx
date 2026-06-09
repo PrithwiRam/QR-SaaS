@@ -81,7 +81,7 @@ export default function VendorDashboard() {
       const [cats, tbls, ords, itemsList] = await Promise.all([
         api.getCategories(rid),
         api.getTables(rid),
-        api.getOrders(rid, { status: 'PENDING,PREPARING,SERVED' }),
+        api.getOrders(rid, { status: 'PENDING,PREPARING,READY,SERVED' }),
         api.getItems(rid),
       ])
       setCategories(cats || [])
@@ -147,11 +147,13 @@ export default function VendorDashboard() {
 
   const totalItems = allItems.length
   const activeTables = tables.filter((t: any) => t.isActive).length
-  const activeOrdersList = orders.filter((o: any) => o.status === 'PENDING' || o.status === 'PREPARING')
+  const activeOrdersList = orders.filter((o: any) => o.status === 'PENDING' || o.status === 'PREPARING' || o.status === 'READY')
   const servedOrdersList = orders.filter((o: any) => o.status === 'SERVED')
+  const cancelledOrdersList = orders.filter((o: any) => o.status === 'CANCELLED')
 
   const pendingOrders = orders.filter((o: any) => o.status === 'PENDING').length
   const preparingOrders = orders.filter((o: any) => o.status === 'PREPARING').length
+  const readyOrders = orders.filter((o: any) => o.status === 'READY').length
   const servedOrders = servedOrdersList.length
 
   // Filter menu items for Quick Stock Control
@@ -202,6 +204,10 @@ export default function VendorDashboard() {
         <div className="stat-card">
           <div className="stat-value" style={{ color: 'var(--accent-blue)' }}>{preparingOrders}</div>
           <div className="stat-label">Preparing</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value" style={{ color: 'var(--gold-primary)' }}>{readyOrders}</div>
+          <div className="stat-label">Ready Orders</div>
         </div>
         <div className="stat-card" style={{ borderLeft: '4px solid var(--accent-green)' }}>
           <div className="stat-value" style={{ color: 'var(--accent-green)' }}>{servedOrders}</div>

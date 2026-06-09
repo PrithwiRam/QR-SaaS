@@ -135,6 +135,7 @@ model Order {
 enum OrderStatus {
   PENDING
   PREPARING
+  READY
   SERVED
   CANCELLED
 }

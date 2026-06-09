@@ -175,6 +175,7 @@ export default function VendorRevenuePage() {
               <option value="">All Status</option>
               <option value="PENDING">Pending</option>
               <option value="PREPARING">Preparing</option>
+              <option value="READY">Ready</option>
               <option value="SERVED">Served</option>
               <option value="CANCELLED">Cancelled</option>
             </select>
